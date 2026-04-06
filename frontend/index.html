@@ -450,6 +450,66 @@
     .file-info .file-name { font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .file-info .file-size { color: var(--text-dim); font-size: 11px; }
 
+    /* ===== File List ===== */
+    .file-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .file-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      animation: slideIn 0.3s ease;
+    }
+    .file-card.active { border-color: var(--accent); }
+
+    .file-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .file-card-header:hover .file-card-name { color: var(--accent2); }
+    .file-card-icon { font-size: 20px; flex-shrink: 0; }
+    .file-card-name {
+      font-weight: 500;
+      font-size: 13px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: color 0.2s;
+    }
+    .file-card-meta {
+      font-size: 11px;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    .file-card-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .file-card-actions .btn { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+
+    .btn-icon {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 4px;
+      font-size: 16px;
+      border-radius: 4px;
+      transition: all 0.2s;
+      line-height: 1;
+    }
+    .btn-icon:hover { color: var(--danger); background: rgba(239,68,68,0.15); }
+
     /* ===== Export ===== */
     .export-section {
       border-top: 1px solid var(--border);
@@ -544,19 +604,22 @@
           <input type="file" id="fileInput" accept="video/*,audio/*" style="display:none"
                  onchange="handleFileSelect(event)">
 
-          <!-- File Info -->
-          <div id="fileInfoBox" style="display:none;" class="file-info">
+          <!-- Pending file (selected but not yet uploaded) -->
+          <div id="pendingFileBox" style="display:none;" class="file-info">
             <div class="file-icon">🎬</div>
-            <div class="file-name" id="fileName"></div>
-            <div class="file-size" id="fileSize"></div>
+            <div class="file-name" id="pendingFileName"></div>
+            <div class="file-size" id="pendingFileSize"></div>
           </div>
 
           <div class="btn-group">
             <button class="btn btn-primary" id="startTranscribeBtn" onclick="startTranscription()" disabled>
-              🚀 開始轉錄
+              🚀 上傳並轉錄
             </button>
-            <button class="btn btn-secondary" onclick="clearAll()">🗑 清除</button>
+            <button class="btn btn-secondary" onclick="clearPending()">🗑 清除</button>
           </div>
+
+          <!-- Uploaded file list -->
+          <div class="file-list" id="fileList"></div>
         </div>
       </div>
 
@@ -688,7 +751,9 @@
 const API_BASE = 'http://localhost:5001';
 let socket = null;
 let currentSid = null;
-let selectedFile = null;
+let selectedFile = null;       // File object pending upload
+let activeFileId = null;       // Currently-selected uploaded file
+let uploadedFiles = {};        // file_id -> server metadata
 let mediaStream = null;
 let mediaRecorder = null;
 let liveChunkInterval = null;
@@ -721,6 +786,7 @@ function connectSocket() {
   socket.on('connected', (data) => {
     currentSid = data.sid;
     showToast('已連接到 Whisper 服務器', 'success');
+    fetchFileList();
   });
 
   socket.on('model_loading', (data) => {
@@ -755,6 +821,13 @@ function connectSocket() {
     showToast(`轉錄完成! 共 ${data.segment_count} 個字幕段落`, 'success');
     enableExport();
     setTimeout(() => setProgress(0), 2000);
+
+    // Update file card
+    if (data.file_id && uploadedFiles[data.file_id]) {
+      uploadedFiles[data.file_id].status = 'done';
+      uploadedFiles[data.file_id].segment_count = data.segment_count;
+      renderFileList();
+    }
   });
 
   socket.on('transcription_error', (data) => {
@@ -763,6 +836,13 @@ function connectSocket() {
     isProcessing = false;
     document.getElementById('startTranscribeBtn').disabled = false;
     setProgress(0);
+  });
+
+  socket.on('file_updated', (data) => {
+    if (data.id && uploadedFiles[data.id]) {
+      Object.assign(uploadedFiles[data.id], data);
+      renderFileList();
+    }
   });
 
   socket.on('live_subtitle', (data) => {
@@ -813,23 +893,23 @@ uploadZone.addEventListener('drop', (e) => {
 
 function handleFileSelect(e) {
   const file = e.target.files[0];
-  if (file) setFile(file);
+  if (file) setPendingFile(file);
 }
 
-function setFile(file) {
+function setPendingFile(file) {
   selectedFile = file;
   const mb = (file.size / 1024 / 1024).toFixed(1);
-  document.getElementById('fileInfoBox').style.display = 'flex';
-  document.getElementById('fileName').textContent = file.name;
-  document.getElementById('fileSize').textContent = `${mb} MB`;
+  document.getElementById('pendingFileBox').style.display = 'flex';
+  document.getElementById('pendingFileName').textContent = file.name;
+  document.getElementById('pendingFileSize').textContent = `${mb} MB`;
   document.getElementById('startTranscribeBtn').disabled = false;
+}
 
-  // Show video preview
-  const url = URL.createObjectURL(file);
-  const video = document.getElementById('videoPlayer');
-  video.src = url;
-  video.style.display = 'block';
-  document.getElementById('videoPlaceholder').style.display = 'none';
+function clearPending() {
+  selectedFile = null;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('pendingFileBox').style.display = 'none';
+  document.getElementById('startTranscribeBtn').disabled = true;
 }
 
 async function startTranscription() {
@@ -858,6 +938,24 @@ async function startTranscription() {
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
+
+    // Add to local file list
+    uploadedFiles[data.file_id] = {
+      id: data.file_id,
+      original_name: selectedFile.name,
+      size: selectedFile.size,
+      status: 'transcribing',
+      segment_count: 0,
+    };
+    activeFileId = data.file_id;
+    renderFileList();
+
+    // Show video preview from server
+    loadMediaPreview(data.file_id);
+
+    // Clear pending
+    clearPending();
+
     setProgress(30);
     showToast('文件上傳成功，開始轉錄...', 'success');
   } catch (err) {
@@ -868,12 +966,131 @@ async function startTranscription() {
   }
 }
 
+// ============================================================
+// File List Management
+// ============================================================
+async function fetchFileList() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/files`);
+    const data = await resp.json();
+    uploadedFiles = {};
+    for (const f of data.files) {
+      uploadedFiles[f.id] = f;
+    }
+    renderFileList();
+  } catch (e) { /* server not ready yet */ }
+}
+
+function renderFileList() {
+  const container = document.getElementById('fileList');
+  const ids = Object.keys(uploadedFiles);
+
+  if (ids.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  // Sort newest first
+  ids.sort((a, b) => (uploadedFiles[b].uploaded_at || 0) - (uploadedFiles[a].uploaded_at || 0));
+
+  container.innerHTML = ids.map(id => {
+    const f = uploadedFiles[id];
+    const mb = (f.size / 1024 / 1024).toFixed(1);
+    const isActive = id === activeFileId;
+    const isDone = f.status === 'done';
+    const isError = f.status === 'error';
+    const isBusy = f.status === 'transcribing';
+
+    let statusHtml = '';
+    if (isDone) statusHtml = '<span class="badge badge-done">完成</span>';
+    else if (isBusy) statusHtml = '<span class="badge badge-processing">轉錄中</span>';
+    else if (isError) statusHtml = '<span class="badge badge-idle">錯誤</span>';
+    else statusHtml = '<span class="badge badge-idle">已上傳</span>';
+
+    let downloadHtml = '';
+    if (isDone) {
+      downloadHtml = `
+        <div class="file-card-actions">
+          <a class="btn btn-secondary" href="${API_BASE}/api/files/${id}/subtitle.srt" download>SRT</a>
+          <a class="btn btn-secondary" href="${API_BASE}/api/files/${id}/subtitle.vtt" download>VTT</a>
+          <a class="btn btn-secondary" href="${API_BASE}/api/files/${id}/subtitle.txt" download>TXT</a>
+        </div>`;
+    }
+
+    return `
+      <div class="file-card ${isActive ? 'active' : ''}" data-file-id="${id}">
+        <div class="file-card-header" onclick="selectFile('${id}')">
+          <span class="file-card-icon">${isDone ? '✅' : isBusy ? '⏳' : isError ? '❌' : '🎬'}</span>
+          <span class="file-card-name">${escapeHtml(f.original_name)}</span>
+          <span class="file-card-meta">${mb} MB</span>
+          ${statusHtml}
+          <button class="btn-icon" onclick="event.stopPropagation(); deleteFile('${id}')" title="刪除">✕</button>
+        </div>
+        ${downloadHtml}
+      </div>`;
+  }).join('');
+}
+
+function selectFile(fileId) {
+  activeFileId = fileId;
+  renderFileList();
+  loadMediaPreview(fileId);
+
+  // Load segments for this file from server
+  loadFileSegments(fileId);
+}
+
+async function loadFileSegments(fileId) {
+  // Fetch full file data to get segments
+  try {
+    const resp = await fetch(`${API_BASE}/api/files`);
+    const data = await resp.json();
+    const file = data.files.find(f => f.id === fileId);
+    if (file && file.status === 'done') {
+      // Segments are in the subtitle file, but we can also reconstruct from
+      // the subtitle_segment events we already received. For now just show
+      // a message that they can download.
+      enableExport();
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function loadMediaPreview(fileId) {
+  const video = document.getElementById('videoPlayer');
+  video.src = `${API_BASE}/api/files/${fileId}/media`;
+  video.style.display = 'block';
+  document.getElementById('videoPlaceholder').style.display = 'none';
+}
+
+async function deleteFile(fileId) {
+  try {
+    const resp = await fetch(`${API_BASE}/api/files/${fileId}`, { method: 'DELETE' });
+    const data = await resp.json();
+    if (data.status === 'deleted') {
+      delete uploadedFiles[fileId];
+      if (activeFileId === fileId) {
+        activeFileId = null;
+        document.getElementById('videoPlayer').style.display = 'none';
+        document.getElementById('videoPlayer').src = '';
+        document.getElementById('videoPlaceholder').style.display = 'flex';
+        segments = [];
+        clearTranscriptDisplay();
+        disableExport();
+        hideSubtitle();
+      }
+      renderFileList();
+      showToast('文件已刪除', 'success');
+    }
+  } catch (err) {
+    showToast(`刪除失敗: ${err.message}`, 'error');
+  }
+}
+
 function clearAll() {
-  selectedFile = null;
-  document.getElementById('fileInput').value = '';
-  document.getElementById('fileInfoBox').style.display = 'none';
-  document.getElementById('startTranscribeBtn').disabled = true;
+  clearPending();
+  activeFileId = null;
   document.getElementById('videoPlayer').style.display = 'none';
+  document.getElementById('videoPlayer').src = '';
   document.getElementById('videoPlaceholder').style.display = 'flex';
   clearTranscript();
   setProgress(0);

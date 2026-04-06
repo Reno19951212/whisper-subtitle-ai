@@ -23,6 +23,9 @@ Thumbs.db
 # Whisper model cache
 *.pt
 
+# Uploaded media & transcription data
+backend/data/
+
 # Temp files
 *.tmp
 *.log

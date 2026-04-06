@@ -10,7 +10,7 @@ This file is the authoritative development reference for Claude Code.
 A browser-based web application that uses OpenAI Whisper for automatic speech recognition (ASR), converting spoken audio/video into Traditional Chinese subtitles in real time. The app supports both pre-recorded file upload and live camera/screen capture.
 
 **Tech stack:**
-- Backend: Python 3.8+, Flask, Flask-SocketIO, eventlet, openai-whisper, faster-whisper (optional)
+- Backend: Python 3.8+, Flask, Flask-SocketIO, openai-whisper, faster-whisper (optional)
 - Frontend: Vanilla HTML/CSS/JS (single file, no build step), Socket.IO client
 - Audio extraction: FFmpeg (system dependency)
 
@@ -22,7 +22,8 @@ A browser-based web application that uses OpenAI Whisper for automatic speech re
 Whisper 開發/
 ├── backend/
 │   ├── app.py              # Flask server — REST API + WebSocket events
-│   └── requirements.txt    # Python dependencies
+│   ├── requirements.txt    # Python dependencies
+│   └── data/               # Runtime: uploaded media + registry.json (gitignored)
 ├── frontend/
 │   └── index.html          # Complete single-page web app
 ├── setup.sh                # One-shot environment setup
@@ -65,6 +66,8 @@ Whisper 開發/
 | `transcription_complete` | `{text, language, segment_count}` | All done |
 | `transcription_error` | `{error}` | Any failure |
 | `live_subtitle` | `{text, start, end, timestamp}` | Live mode subtitle |
+| `file_added` | `{id, original_name, ...}` | New file uploaded |
+| `file_updated` | `{id, status, ...}` | File status changed |
 
 **WebSocket events (client → server)**
 | Event | Payload |
@@ -77,8 +80,18 @@ Whisper 開發/
 |---|---|---|
 | GET | `/api/health` | Server status, loaded models |
 | GET | `/api/models` | Available model list |
-| POST | `/api/transcribe` | Async file transcription (streams via WS) |
+| POST | `/api/transcribe` | Upload + async transcription (streams via WS). Returns `file_id`. File is kept on disk until explicitly deleted. |
 | POST | `/api/transcribe/sync` | Sync transcription (small files) |
+| GET | `/api/files` | List all uploaded files with status |
+| GET | `/api/files/<id>/media` | Serve the original uploaded media file |
+| GET | `/api/files/<id>/subtitle.<fmt>` | Download subtitle in srt/vtt/txt format |
+| DELETE | `/api/files/<id>` | Delete file from disk and registry |
+
+**File persistence**
+- Uploaded files are stored in `backend/data/uploads/` with a unique ID filename
+- Metadata (original name, status, segments) is persisted in `backend/data/registry.json`
+- The registry is loaded at server startup, so files survive restarts
+- Files are only deleted when the user explicitly clicks the delete button
 
 **Important implementation notes**
 - Always capture `request.sid` before spawning a background thread — Flask request context is not available inside threads
@@ -116,6 +129,23 @@ Single self-contained file. No build step required.
 - The `get_model()` function must remain the single entry point for model loading
 - Test both faster-whisper and openai-whisper code paths when modifying transcription logic
 
+### Mandatory documentation updates on every feature change
+
+Whenever a new feature is completed or existing functionality is modified, you **must** update the following files before committing:
+
+1. **CLAUDE.md** (this file):
+   - Add or update the relevant section in Architecture if the system design changed
+   - Update REST endpoint / WebSocket event tables if new routes or events were added
+   - Append a new version entry under "Completed Features" describing what was added or changed
+
+2. **README.md** (user-facing, **must be written in Traditional Chinese**):
+   - Update the feature table at the top if a new capability was added
+   - Update the usage instructions if the user workflow changed
+   - Update the project structure section if new files/directories were introduced
+   - Update the API reference table if new endpoints were added
+   - Append a new version entry under "更新記錄" describing the changes
+   - Ensure all text remains in Traditional Chinese (繁體中文)
+
 ---
 
 ## Completed Features
@@ -146,3 +176,14 @@ Single self-contained file. No build step required.
 - Fixed live chunk temp file extension (`.webm` instead of `.wav`)
 - Fixed health endpoint referencing deleted `_model_cache` variable
 - Added WebVTT (`.vtt`) export format
+
+### v1.3 — Persistent File Management
+- Uploaded files are now kept on disk until the user explicitly deletes them (no longer auto-deleted after transcription)
+- File registry persisted in `backend/data/registry.json`; survives server restarts
+- Frontend file list: each uploaded file appears as a card with status indicator (uploading/transcribing/done/error)
+- Click a file card to load its media into the video player
+- Per-file SRT/VTT/TXT download links appear directly on the card when transcription is done
+- Delete button on each file card removes the file from disk and registry
+- Backend: `async_mode` switched from `eventlet` (deprecated) to `threading`; server port changed to 5001 (macOS AirPlay conflict)
+- New REST endpoints: `GET /api/files`, `GET /api/files/<id>/media`, `GET /api/files/<id>/subtitle.<fmt>`, `DELETE /api/files/<id>`
+- New WebSocket events: `file_added`, `file_updated`

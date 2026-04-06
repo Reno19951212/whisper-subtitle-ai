@@ -8,13 +8,14 @@
 
 | 功能 | 說明 |
 |------|------|
-| 📁 **文件上傳** | 拖放或選擇影片/音頻，自動轉錄並顯示字幕 |
+| 📁 **文件上傳與管理** | 拖放或選擇影片/音頻，文件上傳後持久保存，直到手動刪除 |
+| 📋 **文件列表** | 所有已上傳文件以卡片形式顯示，包含狀態指示及下載選項 |
 | 🎥 **實時直播** | 從攝像頭或屏幕共享捕捉，每 3 秒批次轉錄 |
 | 💬 **繁體中文字幕** | 強制輸出繁體中文，字幕疊加於影片畫面 |
 | ⏱ **延遲同步** | 0–5 秒可調延遲，確保字幕與語音同步 |
 | ⚡ **雙引擎支援** | 自動選用 faster-whisper（快 4–8 倍）或 openai-whisper |
 | 🤖 **6 種模型** | tiny → turbo，按速度/精準度自由選擇 |
-| 💾 **三種導出** | SRT 字幕、WebVTT 字幕、TXT 純文字 |
+| 💾 **三種導出** | 每個文件獨立提供 SRT、VTT、TXT 下載 |
 
 ---
 
@@ -76,7 +77,8 @@ open frontend/index.html
 Whisper 開發/
 ├── backend/
 │   ├── app.py              # Flask 後端服務器（REST API + WebSocket）
-│   └── requirements.txt    # Python 依賴清單
+│   ├── requirements.txt    # Python 依賴清單
+│   └── data/               # 已上傳文件及轉錄結果（自動生成，已 gitignore）
 ├── frontend/
 │   └── index.html          # 完整 Web 應用（單一文件，無需構建）
 ├── setup.sh                # 一鍵安裝腳本
@@ -91,11 +93,13 @@ Whisper 開發/
 - **Whisper 引擎**：優先使用 `faster-whisper`（需額外安裝），自動回退至 `openai-whisper`
 - **FFmpeg**：從影片文件提取 16kHz 單聲道音頻
 - **背景線程**：轉錄在後台執行，每完成一個段落即時通過 WebSocket 推送至前端
+- **文件持久化**：上傳的文件保存在 `data/uploads/`，元數據記錄在 `data/registry.json`，重啟不丟失
 
 ### 前端（`frontend/index.html`）
 
 - 純 HTML/CSS/JavaScript，無需任何構建工具
 - **文件上傳模式**：選擇或拖放檔案 → 上傳至後端 → 接收字幕段落 → 同步顯示於影片
+- **文件列表**：已上傳文件以卡片顯示，點擊可預覽，轉錄完成後直接提供 SRT/VTT/TXT 下載
 - **實時直播模式**：瀏覽器錄製音頻 → 每 3 秒傳送至後端 → 接收字幕 → 顯示覆蓋層
 
 ---
@@ -107,8 +111,13 @@ Whisper 開發/
 1. 點擊「📁 文件上傳」頁籤
 2. 拖放影片/音頻至上傳區域，或點擊選擇文件
 3. 在右側「設置」面板選擇 Whisper 模型
-4. 點擊「🚀 開始轉錄」
-5. 字幕會即時顯示於影片畫面底部，並同步列於右側轉錄面板
+4. 點擊「🚀 上傳並轉錄」
+5. 文件會出現在下方的文件列表中，顯示轉錄狀態
+6. 轉錄完成後，文件卡片會顯示 SRT / VTT / TXT 下載按鈕
+7. 點擊文件卡片可隨時切換預覽不同文件
+8. 點擊 ✕ 按鈕可刪除文件
+
+> 上傳的文件會持久保存在服務器上，除非你手動刪除，重啟服務器後文件仍然存在。
 
 **支援格式：** MP4、MOV、AVI、MKV、WebM、MP3、WAV、M4A、AAC、FLAC、OGG
 
@@ -132,10 +141,19 @@ Whisper 開發/
 
 ### 導出字幕
 
-轉錄完成後，點擊底部導出按鈕：
-- **💾 SRT**：標準字幕格式，兼容大部分影片播放器（如 VLC、PotPlayer）
-- **💾 VTT**：WebVTT 格式，可直接用於 HTML5 `<video>` 的 `<track>` 元素
-- **📃 TXT**：純文字逐字稿，每段一行
+轉錄完成後，有兩種導出方式：
+
+**方式一：文件卡片下載**（推薦）
+- 每個已完成轉錄的文件卡片上會直接顯示 **SRT** / **VTT** / **TXT** 下載按鈕
+- 點擊即可下載對應格式的字幕文件
+
+**方式二：右側轉錄面板導出**
+- 點擊底部的 SRT / VTT / TXT 按鈕導出當前顯示的轉錄內容
+
+**格式說明：**
+- **SRT**：標準字幕格式，兼容大部分影片播放器（如 VLC、PotPlayer）
+- **VTT**：WebVTT 格式，可直接用於 HTML5 `<video>` 的 `<track>` 元素
+- **TXT**：純文字逐字稿，每段一行
 
 ---
 
@@ -160,18 +178,33 @@ Whisper 開發/
 
 ## API 參考
 
-後端提供以下 REST 端點（基礎 URL：`http://localhost:5000`）：
+後端提供以下 REST 端點（基礎 URL：`http://localhost:5001`）：
 
 | 方法 | 路徑 | 說明 |
 |------|------|------|
 | GET | `/api/health` | 服務器狀態及已加載模型 |
 | GET | `/api/models` | 可用模型清單 |
-| POST | `/api/transcribe` | 異步轉錄（通過 WebSocket 串流結果） |
+| POST | `/api/transcribe` | 上傳並異步轉錄（通過 WebSocket 串流結果） |
 | POST | `/api/transcribe/sync` | 同步轉錄（適合小文件） |
+| GET | `/api/files` | 列出所有已上傳文件及狀態 |
+| GET | `/api/files/<id>/media` | 取得原始媒體文件 |
+| GET | `/api/files/<id>/subtitle.srt` | 下載 SRT 字幕 |
+| GET | `/api/files/<id>/subtitle.vtt` | 下載 VTT 字幕 |
+| GET | `/api/files/<id>/subtitle.txt` | 下載 TXT 逐字稿 |
+| DELETE | `/api/files/<id>` | 刪除文件及轉錄數據 |
 
 ---
 
 ## 更新記錄
+
+### v1.3 — 文件持久化管理
+- 上傳的文件現在會持久保存在服務器上，直到手動刪除
+- 文件列表以卡片形式顯示，包含轉錄狀態指示
+- 轉錄完成的文件卡片直接提供 SRT / VTT / TXT 下載按鈕
+- 點擊文件卡片可切換預覽，點擊 ✕ 刪除文件
+- 文件數據在服務器重啟後不會丟失
+- 新增 REST API：文件列表、媒體服務、字幕下載、文件刪除
+- 服務器 Port 改為 5001（避免 macOS AirPlay 衝突）
 
 ### v1.2 — 雙引擎支援與 WebVTT 導出
 - 新增 `faster-whisper` 引擎支援（自動選用，快 4–8 倍）

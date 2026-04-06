@@ -5,8 +5,10 @@ Supports video/audio file upload and live transcription to Traditional Chinese s
 """
 
 import os
+import json
 import base64
 import time
+import uuid
 import threading
 import tempfile
 import subprocess
@@ -36,9 +38,70 @@ CORS(app, origins="*")
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading',
                     max_http_buffer_size=100 * 1024 * 1024)
 
-# Upload directory
-UPLOAD_DIR = Path(tempfile.gettempdir()) / "whisper_uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+# Persistent storage directory (inside project, survives restarts)
+DATA_DIR = Path(__file__).parent / "data"
+UPLOAD_DIR = DATA_DIR / "uploads"
+RESULTS_DIR = DATA_DIR / "results"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+# In-memory file registry: file_id -> metadata dict
+_file_registry = {}
+_registry_lock = threading.Lock()
+
+
+def _load_registry():
+    """Load file registry from disk on startup"""
+    registry_path = DATA_DIR / "registry.json"
+    if registry_path.exists():
+        with open(registry_path) as f:
+            return json.load(f)
+    return {}
+
+
+def _save_registry():
+    """Persist file registry to disk"""
+    registry_path = DATA_DIR / "registry.json"
+    with open(registry_path, 'w') as f:
+        json.dump(_file_registry, f, ensure_ascii=False, indent=2)
+
+
+def _register_file(file_id, original_name, stored_name, size_bytes):
+    """Register an uploaded file"""
+    with _registry_lock:
+        _file_registry[file_id] = {
+            'id': file_id,
+            'original_name': original_name,
+            'stored_name': stored_name,
+            'size': size_bytes,
+            'status': 'uploaded',  # uploaded | transcribing | done | error
+            'uploaded_at': time.time(),
+            'segments': [],
+            'text': '',
+            'error': None,
+        }
+        _save_registry()
+    return _file_registry[file_id]
+
+
+def _update_file(file_id, **kwargs):
+    """Update file metadata"""
+    with _registry_lock:
+        if file_id in _file_registry:
+            _file_registry[file_id].update(kwargs)
+            _save_registry()
+
+
+def _delete_file_entry(file_id):
+    """Delete a file from registry and disk"""
+    with _registry_lock:
+        entry = _file_registry.pop(file_id, None)
+        _save_registry()
+    if entry:
+        media_path = UPLOAD_DIR / entry['stored_name']
+        if media_path.exists():
+            media_path.unlink()
+    return entry is not None
 
 # Global model cache — separate caches for each backend
 _openai_model_cache = {}
@@ -279,7 +342,7 @@ def list_models():
 
 @app.route('/api/transcribe', methods=['POST'])
 def transcribe_file():
-    """Upload and transcribe a video/audio file"""
+    """Upload and transcribe a video/audio file. File is kept until explicitly deleted."""
     if 'file' not in request.files:
         return jsonify({'error': '未找到文件'}), 400
 
@@ -294,27 +357,50 @@ def transcribe_file():
     model_size = request.form.get('model', 'small')
     sid = request.form.get('sid', None)
 
-    # Save uploaded file
-    filename = f"upload_{int(time.time())}{suffix}"
-    file_path = str(UPLOAD_DIR / filename)
+    # Generate a unique file id and save
+    file_id = uuid.uuid4().hex[:12]
+    stored_name = f"{file_id}{suffix}"
+    file_path = str(UPLOAD_DIR / stored_name)
     file.save(file_path)
+
+    file_size = os.path.getsize(file_path)
+    entry = _register_file(file_id, file.filename, stored_name, file_size)
+
+    # Notify client about the new file
+    if sid:
+        socketio.emit('file_added', entry, room=sid)
 
     # Start transcription in background thread
     def do_transcribe():
+        _update_file(file_id, status='transcribing')
+        if sid:
+            socketio.emit('file_updated', {'id': file_id, 'status': 'transcribing'}, room=sid)
         try:
             result = transcribe_with_segments(file_path, model_size, sid)
-            if result and sid:
-                socketio.emit('transcription_complete', {
-                    'text': result['text'],
-                    'language': result['language'],
-                    'segment_count': len(result['segments'])
-                }, room=sid)
+            if result:
+                _update_file(
+                    file_id,
+                    status='done',
+                    text=result['text'],
+                    segments=result['segments'],
+                )
+                if sid:
+                    socketio.emit('file_updated', {
+                        'id': file_id,
+                        'status': 'done',
+                        'segment_count': len(result['segments']),
+                    }, room=sid)
+                    socketio.emit('transcription_complete', {
+                        'file_id': file_id,
+                        'text': result['text'],
+                        'language': result['language'],
+                        'segment_count': len(result['segments'])
+                    }, room=sid)
         except Exception as e:
+            _update_file(file_id, status='error', error=str(e))
             if sid:
+                socketio.emit('file_updated', {'id': file_id, 'status': 'error', 'error': str(e)}, room=sid)
                 socketio.emit('transcription_error', {'error': str(e)}, room=sid)
-        finally:
-            if os.path.exists(file_path):
-                os.remove(file_path)
 
     thread = threading.Thread(target=do_transcribe)
     thread.daemon = True
@@ -322,8 +408,9 @@ def transcribe_file():
 
     return jsonify({
         'status': 'processing',
-        'message': '轉錄已開始，請通過 WebSocket 接收結果',
-        'filename': filename
+        'file_id': file_id,
+        'message': '轉錄已開始',
+        'filename': stored_name,
     })
 
 
@@ -353,6 +440,109 @@ def transcribe_sync():
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
+
+
+@app.route('/api/files', methods=['GET'])
+def list_files():
+    """List all uploaded files with their status"""
+    files = []
+    with _registry_lock:
+        for fid, entry in _file_registry.items():
+            files.append({
+                'id': entry['id'],
+                'original_name': entry['original_name'],
+                'size': entry['size'],
+                'status': entry['status'],
+                'uploaded_at': entry['uploaded_at'],
+                'segment_count': len(entry.get('segments', [])),
+                'error': entry.get('error'),
+            })
+    # Newest first
+    files.sort(key=lambda f: f['uploaded_at'], reverse=True)
+    return jsonify({'files': files})
+
+
+@app.route('/api/files/<file_id>/media')
+def serve_media(file_id):
+    """Serve the original uploaded media file"""
+    with _registry_lock:
+        entry = _file_registry.get(file_id)
+    if not entry:
+        return jsonify({'error': '文件不存在'}), 404
+
+    media_path = UPLOAD_DIR / entry['stored_name']
+    if not media_path.exists():
+        return jsonify({'error': '文件已丟失'}), 404
+
+    return send_file(str(media_path), as_attachment=False)
+
+
+@app.route('/api/files/<file_id>/subtitle.<fmt>')
+def download_subtitle(file_id, fmt):
+    """Download subtitles in SRT, VTT, or TXT format"""
+    if fmt not in ('srt', 'vtt', 'txt'):
+        return jsonify({'error': '不支持的格式'}), 400
+
+    with _registry_lock:
+        entry = _file_registry.get(file_id)
+    if not entry:
+        return jsonify({'error': '文件不存在'}), 404
+    if entry['status'] != 'done':
+        return jsonify({'error': '轉錄尚未完成'}), 400
+
+    segs = entry.get('segments', [])
+    base_name = Path(entry['original_name']).stem
+
+    if fmt == 'txt':
+        content = '\n'.join(s['text'] for s in segs)
+        mime = 'text/plain'
+    elif fmt == 'srt':
+        lines = []
+        for i, s in enumerate(segs):
+            lines.append(str(i + 1))
+            lines.append(f"{_fmt_srt(s['start'])} --> {_fmt_srt(s['end'])}")
+            lines.append(s['text'])
+            lines.append('')
+        content = '\n'.join(lines)
+        mime = 'text/plain'
+    else:  # vtt
+        lines = ['WEBVTT', '']
+        for i, s in enumerate(segs):
+            lines.append(str(i + 1))
+            lines.append(f"{_fmt_vtt(s['start'])} --> {_fmt_vtt(s['end'])}")
+            lines.append(s['text'])
+            lines.append('')
+        content = '\n'.join(lines)
+        mime = 'text/vtt'
+
+    from io import BytesIO
+    buf = BytesIO(content.encode('utf-8'))
+    return send_file(buf, mimetype=mime, as_attachment=True,
+                     download_name=f"{base_name}.{fmt}")
+
+
+def _fmt_srt(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    ms = int((seconds % 1) * 1000)
+    return f"{h:02}:{m:02}:{s:02},{ms:03}"
+
+
+def _fmt_vtt(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    ms = int((seconds % 1) * 1000)
+    return f"{h:02}:{m:02}:{s:02}.{ms:03}"
+
+
+@app.route('/api/files/<file_id>', methods=['DELETE'])
+def delete_file(file_id):
+    """Delete an uploaded file and its transcription data"""
+    if _delete_file_entry(file_id):
+        return jsonify({'status': 'deleted', 'id': file_id})
+    return jsonify({'error': '文件不存在'}), 404
 
 
 # ============================================================
@@ -426,7 +616,12 @@ if __name__ == '__main__':
     print("Whisper AI 字幕應用程式 - 後端服務器")
     print("=" * 60)
     print(f"上傳目錄: {UPLOAD_DIR}")
+    print(f"結果目錄: {RESULTS_DIR}")
     print("正在啟動服務器...")
+
+    # Load persisted file registry
+    _file_registry.update(_load_registry())
+    print(f"已載入 {len(_file_registry)} 個已上傳文件")
 
     # Pre-load small model
     print("預加載模型 (small)...")
