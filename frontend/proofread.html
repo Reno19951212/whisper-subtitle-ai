@@ -614,6 +614,10 @@
         </div>
       </div>
       <button class="btn btn-secondary" id="btnBulkApprove">批核所有未改動</button>
+      <select id="renderFormat" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;">
+        <option value="mp4">MP4</option>
+        <option value="mxf">MXF (ProRes)</option>
+      </select>
       <button class="btn btn-render" id="btnRender" disabled>匯出燒入字幕 →</button>
     </div>
   </div>
@@ -1121,8 +1125,67 @@
 
   // ===== Render / Export button =====
 
-  btnRender.addEventListener('click', () => {
-    showToast('燒入字幕功能即將在 Phase 6 推出', 'info', 4000);
+  btnRender.addEventListener('click', async () => {
+    const format = document.getElementById('renderFormat').value;
+    btnRender.disabled = true;
+    btnRender.textContent = '渲染中...';
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/render`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({file_id: fileId, format: format}),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json();
+        showToast(err.error || '渲染失敗', 'error');
+        btnRender.disabled = false;
+        btnRender.textContent = '匯出燒入字幕 →';
+        return;
+      }
+
+      const data = await resp.json();
+      const renderId = data.render_id;
+      showToast('渲染已開始...', 'info');
+
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusResp = await fetch(`${API_BASE}/api/renders/${renderId}`);
+          const statusData = await statusResp.json();
+
+          if (statusData.status === 'done') {
+            clearInterval(pollInterval);
+            btnRender.textContent = '匯出燒入字幕 →';
+            btnRender.disabled = false;
+            showToast('渲染完成！', 'success');
+
+            const downloadUrl = `${API_BASE}/api/renders/${renderId}/download`;
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = statusData.output_filename || `render.${format}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          } else if (statusData.status === 'error') {
+            clearInterval(pollInterval);
+            btnRender.textContent = '匯出燒入字幕 →';
+            btnRender.disabled = false;
+            showToast(statusData.error || '渲染失敗', 'error');
+          }
+        } catch (e) {
+          clearInterval(pollInterval);
+          btnRender.textContent = '匯出燒入字幕 →';
+          btnRender.disabled = false;
+          showToast('檢查渲染狀態失敗', 'error');
+        }
+      }, 2000);
+
+    } catch (e) {
+      btnRender.disabled = false;
+      btnRender.textContent = '匯出燒入字幕 →';
+      showToast('渲染請求失敗', 'error');
+    }
   });
 
   btnBulkApprove.addEventListener('click', bulkApprove);
