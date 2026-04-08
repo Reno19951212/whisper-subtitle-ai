@@ -1248,23 +1248,22 @@ async function loadFileSegments(fileId) {
     if (data.status === 'done' && data.segments && data.segments.length > 0) {
       segments = data.segments;
 
-      // If translations exist, replace segment text with zh_text BEFORE rendering
-      const f = uploadedFiles[fileId];
-      if (f && f.translation_status === 'done') {
-        try {
-          const tResp = await fetch(`${API_BASE}/api/files/${fileId}/translations`);
-          if (tResp.ok) {
-            const tData = await tResp.json();
-            const translations = tData.translations || [];
+      // Always try to fetch translations — overlay zh_text onto segments before rendering
+      try {
+        const tResp = await fetch(`${API_BASE}/api/files/${fileId}/translations`);
+        if (tResp.ok) {
+          const tData = await tResp.json();
+          const translations = tData.translations || [];
+          if (translations.length > 0) {
             for (let i = 0; i < segments.length && i < translations.length; i++) {
               segments[i]._en_text = segments[i].text;
               segments[i].text = translations[i].zh_text || segments[i].text;
             }
           }
-        } catch (e) { /* translation fetch failed, keep English */ }
-      }
+        }
+      } catch (e) { /* translation fetch failed, keep English */ }
 
-      // Rebuild transcript display (now with Chinese if translations loaded)
+      // Rebuild transcript display (with Chinese if translations were loaded)
       clearTranscriptDisplay();
       for (const seg of segments) {
         addSegment(seg, true);
@@ -1840,7 +1839,7 @@ async function loadTranslationsForActiveFile(fileId) {
     }
 
     // Re-render transcript panel with translated text
-    const container = document.getElementById('transcriptContainer');
+    const container = document.getElementById('transcriptList');
     if (container) {
       container.querySelectorAll('.transcript-text').forEach((el, i) => {
         if (i < segments.length) {
