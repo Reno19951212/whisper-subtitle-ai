@@ -760,7 +760,14 @@ def api_translate_file():
             for s in segments
         ]
 
-        translated = engine.translate(asr_segments, glossary=[], style=style)
+        glossary_entries = []
+        glossary_id = translation_config.get("glossary_id")
+        if glossary_id:
+            glossary_data = _glossary_manager.get(glossary_id)
+            if glossary_data:
+                glossary_entries = glossary_data.get("entries", [])
+
+        translated = engine.translate(asr_segments, glossary=glossary_entries, style=style)
 
         _update_file(file_id, translations=translated, translation_status='done')
 
