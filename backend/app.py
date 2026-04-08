@@ -1131,6 +1131,52 @@ def transcribe_file():
     if sid:
         socketio.emit('file_added', entry, room=sid)
 
+    def _auto_translate(fid, segments, session_id):
+        """Auto-translate segments after transcription using the active profile."""
+        try:
+            profile = _profile_manager.get_active()
+            if not profile:
+                return
+            translation_config = profile.get("translation", {})
+            engine_name = translation_config.get("engine", "")
+            if not engine_name:
+                return
+
+            from translation import create_translation_engine
+            engine = create_translation_engine(translation_config)
+
+            style = translation_config.get("style", "formal")
+            glossary_entries = []
+            glossary_id = translation_config.get("glossary_id")
+            if glossary_id:
+                glossary_data = _glossary_manager.get(glossary_id)
+                if glossary_data:
+                    glossary_entries = glossary_data.get("entries", [])
+
+            asr_segments = [
+                {"start": s["start"], "end": s["end"], "text": s["text"]}
+                for s in segments
+            ]
+
+            translated = engine.translate(asr_segments, glossary=glossary_entries, style=style)
+            for t in translated:
+                t["status"] = "pending"
+            _update_file(fid, translations=translated, translation_status='done')
+
+            if session_id:
+                socketio.emit('file_updated', {
+                    'id': fid,
+                    'translation_status': 'done',
+                    'translation_count': len(translated),
+                }, room=session_id)
+        except Exception as e:
+            print(f"Auto-translate failed for {fid}: {e}")
+            if session_id:
+                socketio.emit('file_updated', {
+                    'id': fid,
+                    'translation_error': str(e),
+                }, room=session_id)
+
     # Start transcription in background thread
     def do_transcribe():
         _update_file(file_id, status='transcribing', model=model_size)
@@ -1158,6 +1204,9 @@ def transcribe_file():
                         'language': result['language'],
                         'segment_count': len(result['segments'])
                     }, room=sid)
+
+                # Auto-translate if profile has a translation engine configured
+                _auto_translate(file_id, result['segments'], sid)
         except Exception as e:
             _update_file(file_id, status='error', error=str(e))
             if sid:
