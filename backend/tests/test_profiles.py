@@ -181,3 +181,92 @@ def test_delete_active_profile_clears_active(config_dir):
     mgr.set_active(created["id"])
     mgr.delete(created["id"])
     assert mgr.get_active() is None
+
+
+# ============================================================
+# API Integration Tests
+# ============================================================
+
+@pytest.fixture
+def client(tmp_path):
+    """Create a Flask test client with a temp config dir."""
+    from app import app, _init_profile_manager
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text(json.dumps({"active_profile": None}))
+    _init_profile_manager(tmp_path)
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+def test_api_list_profiles_empty(client):
+    resp = client.get("/api/profiles")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["profiles"] == []
+
+
+def test_api_create_profile(client):
+    resp = client.post("/api/profiles", json=VALID_PROFILE)
+    assert resp.status_code == 201
+    data = resp.get_json()
+    assert data["profile"]["name"] == "Dev Default"
+    assert data["profile"]["id"]
+
+
+def test_api_create_invalid_returns_400(client):
+    resp = client.post("/api/profiles", json={"name": ""})
+    assert resp.status_code == 400
+    assert "errors" in resp.get_json()
+
+
+def test_api_get_profile(client):
+    create_resp = client.post("/api/profiles", json=VALID_PROFILE)
+    pid = create_resp.get_json()["profile"]["id"]
+    resp = client.get(f"/api/profiles/{pid}")
+    assert resp.status_code == 200
+    assert resp.get_json()["profile"]["id"] == pid
+
+
+def test_api_get_nonexistent_returns_404(client):
+    resp = client.get("/api/profiles/nonexistent")
+    assert resp.status_code == 404
+
+
+def test_api_update_profile(client):
+    create_resp = client.post("/api/profiles", json=VALID_PROFILE)
+    pid = create_resp.get_json()["profile"]["id"]
+    resp = client.patch(f"/api/profiles/{pid}", json={
+        "name": "Updated",
+        "asr": VALID_PROFILE["asr"],
+        "translation": VALID_PROFILE["translation"],
+    })
+    assert resp.status_code == 200
+    assert resp.get_json()["profile"]["name"] == "Updated"
+
+
+def test_api_delete_profile(client):
+    create_resp = client.post("/api/profiles", json=VALID_PROFILE)
+    pid = create_resp.get_json()["profile"]["id"]
+    resp = client.delete(f"/api/profiles/{pid}")
+    assert resp.status_code == 200
+    resp2 = client.get(f"/api/profiles/{pid}")
+    assert resp2.status_code == 404
+
+
+def test_api_activate_profile(client):
+    create_resp = client.post("/api/profiles", json=VALID_PROFILE)
+    pid = create_resp.get_json()["profile"]["id"]
+    resp = client.post(f"/api/profiles/{pid}/activate")
+    assert resp.status_code == 200
+    resp2 = client.get("/api/profiles/active")
+    assert resp2.status_code == 200
+    assert resp2.get_json()["profile"]["id"] == pid
+
+
+def test_api_get_active_when_none(client):
+    resp = client.get("/api/profiles/active")
+    assert resp.status_code == 200
+    assert resp.get_json()["profile"] is None

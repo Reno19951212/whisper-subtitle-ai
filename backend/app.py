@@ -20,6 +20,7 @@ import numpy as np
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
+from profiles import ProfileManager
 
 # Try to import faster-whisper for better performance
 try:
@@ -45,6 +46,17 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 RESULTS_DIR = DATA_DIR / "results"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Profile management
+CONFIG_DIR = Path(__file__).parent / "config"
+_profile_manager = ProfileManager(CONFIG_DIR)
+
+
+def _init_profile_manager(config_dir):
+    """Re-initialize profile manager (used by tests)."""
+    global _profile_manager
+    _profile_manager = ProfileManager(config_dir)
+
 
 # In-memory file registry: file_id -> metadata dict
 _file_registry = {}
@@ -540,6 +552,70 @@ def list_models():
             m['status'] = 'not_downloaded'  # needs download + loading
 
     return jsonify({'models': models_info})
+
+
+# ============================================================
+# Profile Management API
+# ============================================================
+
+@app.route('/api/profiles', methods=['GET'])
+def api_list_profiles():
+    return jsonify({"profiles": _profile_manager.list_all()})
+
+
+@app.route('/api/profiles', methods=['POST'])
+def api_create_profile():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body is required"}), 400
+    try:
+        profile = _profile_manager.create(data)
+        return jsonify({"profile": profile}), 201
+    except ValueError as e:
+        return jsonify({"errors": e.args[0]}), 400
+
+
+@app.route('/api/profiles/active', methods=['GET'])
+def api_get_active_profile():
+    profile = _profile_manager.get_active()
+    return jsonify({"profile": profile})
+
+
+@app.route('/api/profiles/<profile_id>', methods=['GET'])
+def api_get_profile(profile_id):
+    profile = _profile_manager.get(profile_id)
+    if not profile:
+        return jsonify({"error": "Profile not found"}), 404
+    return jsonify({"profile": profile})
+
+
+@app.route('/api/profiles/<profile_id>', methods=['PATCH'])
+def api_update_profile(profile_id):
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body is required"}), 400
+    try:
+        profile = _profile_manager.update(profile_id, data)
+        if not profile:
+            return jsonify({"error": "Profile not found"}), 404
+        return jsonify({"profile": profile})
+    except ValueError as e:
+        return jsonify({"errors": e.args[0]}), 400
+
+
+@app.route('/api/profiles/<profile_id>', methods=['DELETE'])
+def api_delete_profile(profile_id):
+    if _profile_manager.delete(profile_id):
+        return jsonify({"message": "Profile deleted"})
+    return jsonify({"error": "Profile not found"}), 404
+
+
+@app.route('/api/profiles/<profile_id>/activate', methods=['POST'])
+def api_activate_profile(profile_id):
+    profile = _profile_manager.set_active(profile_id)
+    if not profile:
+        return jsonify({"error": "Profile not found"}), 404
+    return jsonify({"profile": profile})
 
 
 @app.route('/api/transcribe', methods=['POST'])
