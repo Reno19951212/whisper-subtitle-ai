@@ -109,3 +109,33 @@ def test_whisper_engine_get_info():
     assert info["model_size"] == "small"
     assert info["available"] is True
     assert "en" in info["languages"]
+
+
+import json
+
+
+def test_api_list_asr_engines():
+    """Test the /api/asr/engines REST endpoint."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from app import app
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        resp = client.get("/api/asr/engines")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        engines = data["engines"]
+        assert len(engines) == 3
+
+        engine_names = [e["engine"] for e in engines]
+        assert "whisper" in engine_names
+        assert "qwen3-asr" in engine_names
+        assert "flg-asr" in engine_names
+
+        whisper_info = next(e for e in engines if e["engine"] == "whisper")
+        assert whisper_info["available"] is True
+
+        qwen_info = next(e for e in engines if e["engine"] == "qwen3-asr")
+        assert qwen_info["available"] is False
