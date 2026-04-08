@@ -769,6 +769,8 @@ def api_translate_file():
 
         translated = engine.translate(asr_segments, glossary=glossary_entries, style=style)
 
+        for t in translated:
+            t["status"] = "pending"
         _update_file(file_id, translations=translated, translation_status='done')
 
         return jsonify({
@@ -905,6 +907,79 @@ def api_export_glossary_csv(glossary_id):
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": f"attachment; filename={glossary_id}.csv",
     }
+
+
+# ============================================================
+# Translation Approval API (Proof-reading)
+# ============================================================
+
+@app.route('/api/files/<file_id>/translations', methods=['GET'])
+def api_get_translations(file_id):
+    entry = _file_registry.get(file_id)
+    if not entry:
+        return jsonify({"error": "File not found"}), 404
+    translations = entry.get("translations", [])
+    return jsonify({"translations": translations, "file_id": file_id})
+
+
+@app.route('/api/files/<file_id>/translations/approve-all', methods=['POST'])
+def api_approve_all_translations(file_id):
+    entry = _file_registry.get(file_id)
+    if not entry:
+        return jsonify({"error": "File not found"}), 404
+    translations = entry.get("translations", [])
+    count = 0
+    new_translations = []
+    for t in translations:
+        if t.get("status") == "pending":
+            new_translations.append({**t, "status": "approved"})
+            count += 1
+        else:
+            new_translations.append(t)
+    _update_file(file_id, translations=new_translations)
+    return jsonify({"approved_count": count, "total": len(new_translations)})
+
+
+@app.route('/api/files/<file_id>/translations/status', methods=['GET'])
+def api_translation_status(file_id):
+    entry = _file_registry.get(file_id)
+    if not entry:
+        return jsonify({"error": "File not found"}), 404
+    translations = entry.get("translations", [])
+    approved = sum(1 for t in translations if t.get("status") == "approved")
+    pending = sum(1 for t in translations if t.get("status") != "approved")
+    return jsonify({"total": len(translations), "approved": approved, "pending": pending})
+
+
+@app.route('/api/files/<file_id>/translations/<int:idx>', methods=['PATCH'])
+def api_update_translation(file_id, idx):
+    entry = _file_registry.get(file_id)
+    if not entry:
+        return jsonify({"error": "File not found"}), 404
+    translations = entry.get("translations", [])
+    if idx < 0 or idx >= len(translations):
+        return jsonify({"error": "Translation index out of range"}), 404
+    data = request.get_json()
+    if not data or "zh_text" not in data:
+        return jsonify({"error": "zh_text is required"}), 400
+    new_translations = list(translations)
+    new_translations[idx] = {**translations[idx], "zh_text": data["zh_text"], "status": "approved"}
+    _update_file(file_id, translations=new_translations)
+    return jsonify({"translation": new_translations[idx]})
+
+
+@app.route('/api/files/<file_id>/translations/<int:idx>/approve', methods=['POST'])
+def api_approve_translation(file_id, idx):
+    entry = _file_registry.get(file_id)
+    if not entry:
+        return jsonify({"error": "File not found"}), 404
+    translations = entry.get("translations", [])
+    if idx < 0 or idx >= len(translations):
+        return jsonify({"error": "Translation index out of range"}), 404
+    new_translations = list(translations)
+    new_translations[idx] = {**translations[idx], "status": "approved"}
+    _update_file(file_id, translations=new_translations)
+    return jsonify({"translation": new_translations[idx]})
 
 
 @app.route('/api/transcribe', methods=['POST'])
