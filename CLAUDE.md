@@ -50,8 +50,12 @@ Whisper 開發/
 - Supports both faster-whisper and openai-whisper output formats
 
 **Live transcription (`transcribe_chunk`)**
-- Receives base64-encoded WebM audio blobs from browser every 3 seconds
-- Saves to temp file, transcribes, emits `live_subtitle` events back to client
+- Receives binary WebM audio via WebSocket (with base64 fallback)
+- VAD (Voice Activity Detection): frontend uses Web Audio API AnalyserNode to detect speech energy; silent chunks are skipped; backend uses faster-whisper's `vad_filter=True` as safety net
+- Context carry-over: previous transcription text is passed as `initial_prompt` for continuity
+- Chunk overlap: last 1s of each chunk is prepended to the next via FFmpeg concat, with dedup logic to remove repeated segments
+- Per-session state stored in `_live_session_state` dict (keyed by sid): `last_text`, `prev_audio_tail`, `last_segments`
+- Helper functions: `_extract_audio_tail()`, `_merge_audio_overlap()`, `_deduplicate_segments()`
 - Uses `tiny` model by default for lowest latency
 
 **WebSocket events (server → client)**
@@ -73,7 +77,8 @@ Whisper 開發/
 | Event | Payload |
 |---|---|
 | `load_model` | `{model}` |
-| `live_audio_chunk` | `{audio: base64, model}` |
+| `live_audio_chunk` | `{audio: ArrayBuffer (binary), model}` |
+| `live_silence` | *(no payload)* |
 
 **REST endpoints**
 | Method | Path | Purpose |
@@ -111,8 +116,11 @@ Single self-contained file. No build step required.
 
 **Live audio capture**
 - `MediaRecorder` records the audio track at 3-second intervals
-- Each blob is base64-encoded in chunks of 8192 bytes (avoids stack overflow on large buffers)
-- Sent to server via `live_audio_chunk` WebSocket event
+- Audio sent as binary ArrayBuffer via `live_audio_chunk` WebSocket event (no base64 overhead)
+- VAD via Web Audio API `AnalyserNode`: computes RMS energy every 100ms, skips silent chunks
+- LIVE indicator turns green (`.speech-active`) when speech is detected
+- Frontend dedup: `recentLiveTexts` array tracks last 5 subtitle texts, skips duplicates
+- `live_silence` event sent when a chunk is skipped, clearing backend overlap buffer
 - Received `live_subtitle` events are displayed after `subtitleDelay` ms
 
 **Export formats**
@@ -204,3 +212,13 @@ Whenever a new feature is completed or existing functionality is modified, you *
 - Edits are persisted to the backend via `PATCH /api/files/<id>/segments/<seg_id>` and update `registry.json`
 - Edited text syncs to: the `segments[]` array (subtitle overlay), and all export formats (SRT/VTT/TXT, served from the registry)
 - Hover effect on transcript text to hint editability (subtle purple highlight)
+
+### v1.6 — Enhanced Live Transcription
+- **Binary WebSocket**: audio chunks sent as binary ArrayBuffer instead of base64, reducing transfer overhead by ~33%
+- **VAD (Voice Activity Detection)**: frontend uses Web Audio API AnalyserNode to compute RMS energy; silent chunks are skipped entirely; backend uses faster-whisper `vad_filter=True` as safety net
+- **Context carry-over**: previous transcription text passed as `initial_prompt` for next chunk, improving continuity across chunk boundaries
+- **Chunk overlap**: last 1s of each audio chunk is stored and prepended to the next chunk via FFmpeg concat, preventing sentence truncation at boundaries
+- **Deduplication**: backend `_deduplicate_segments()` uses character-level overlap ratio (>70% threshold); frontend tracks last 5 subtitle texts for additional dedup
+- **Per-session state**: `_live_session_state` dict tracks `last_text`, `prev_audio_tail`, `last_segments` per WebSocket session; cleaned up on disconnect
+- **Visual feedback**: LIVE indicator turns green when speech detected, red when silent
+- New WebSocket event: `live_silence` (client → server) clears overlap buffer on silence

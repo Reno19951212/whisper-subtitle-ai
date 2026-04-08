@@ -111,6 +111,10 @@ _openai_model_cache = {}
 _faster_model_cache = {}
 _model_lock = threading.Lock()
 
+# Per-session live transcription state (context carry-over + overlap)
+_live_session_state = {}   # sid -> {'last_text': str, 'prev_audio_tail': bytes|None, 'last_segments': list}
+_session_state_lock = threading.Lock()
+
 ALLOWED_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'}
 
 
@@ -346,10 +350,110 @@ def transcribe_with_segments(file_path: str, model_size: str = 'small', sid: str
             os.remove(temp_audio)
 
 
-def transcribe_chunk(audio_data: bytes, model_size: str = 'tiny') -> list:
+def _extract_audio_tail(audio_bytes: bytes, tail_seconds: float = 1.0) -> bytes:
+    """Extract the last tail_seconds of audio using FFmpeg.
+    Returns the tail audio bytes, or None on failure."""
+    in_file = str(UPLOAD_DIR / f"tail_in_{int(time.time() * 1000)}.webm")
+    out_file = str(UPLOAD_DIR / f"tail_out_{int(time.time() * 1000)}.webm")
+    try:
+        with open(in_file, 'wb') as f:
+            f.write(audio_bytes)
+        cmd = [
+            'ffmpeg', '-y', '-sseof', f'-{tail_seconds}',
+            '-i', in_file, '-c', 'copy', out_file
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=10)
+        if result.returncode == 0 and os.path.exists(out_file):
+            with open(out_file, 'rb') as f:
+                return f.read()
+        return None
+    except Exception as e:
+        print(f"Error extracting audio tail: {e}")
+        return None
+    finally:
+        for f in [in_file, out_file]:
+            if os.path.exists(f):
+                os.remove(f)
+
+
+def _merge_audio_overlap(prev_tail: bytes, current: bytes) -> bytes:
+    """Concatenate previous audio tail with current chunk using FFmpeg.
+    Returns merged audio bytes, or current on failure."""
+    tail_file = str(UPLOAD_DIR / f"merge_tail_{int(time.time() * 1000)}.webm")
+    curr_file = str(UPLOAD_DIR / f"merge_curr_{int(time.time() * 1000)}.webm")
+    out_file = str(UPLOAD_DIR / f"merge_out_{int(time.time() * 1000)}.webm")
+    list_file = str(UPLOAD_DIR / f"merge_list_{int(time.time() * 1000)}.txt")
+    try:
+        with open(tail_file, 'wb') as f:
+            f.write(prev_tail)
+        with open(curr_file, 'wb') as f:
+            f.write(current)
+        # Create concat list file
+        with open(list_file, 'w') as f:
+            f.write(f"file '{tail_file}'\nfile '{curr_file}'\n")
+        cmd = [
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+            '-i', list_file, '-c', 'copy', out_file
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=10)
+        if result.returncode == 0 and os.path.exists(out_file):
+            with open(out_file, 'rb') as f:
+                return f.read()
+        return current  # fallback: use current chunk only
+    except Exception as e:
+        print(f"Error merging audio overlap: {e}")
+        return current
+    finally:
+        for f in [tail_file, curr_file, out_file, list_file]:
+            if os.path.exists(f):
+                os.remove(f)
+
+
+def _deduplicate_segments(new_segments: list, prev_segment_texts: list) -> list:
+    """Remove segments that overlap with previous chunk's segments.
+    Uses character-level similarity for Chinese text."""
+    if not prev_segment_texts or not new_segments:
+        return new_segments
+
+    def char_overlap_ratio(a: str, b: str) -> float:
+        """Compute ratio of overlapping characters between two strings."""
+        if not a or not b:
+            return 0.0
+        shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+        # Check if shorter is contained in longer
+        if shorter in longer:
+            return 1.0
+        # Check suffix-prefix overlap
+        max_overlap = min(len(a), len(b))
+        for k in range(max_overlap, 0, -1):
+            if a[-k:] == b[:k] or b[-k:] == a[:k]:
+                return k / max_overlap
+        return 0.0
+
+    result = []
+    for seg in new_segments:
+        text = seg.get('text', '').strip()
+        if not text:
+            continue
+        is_dup = False
+        for prev_text in prev_segment_texts:
+            if char_overlap_ratio(text, prev_text) > 0.7:
+                is_dup = True
+                break
+        if not is_dup:
+            result.append(seg)
+    return result
+
+
+def transcribe_chunk(audio_data: bytes, model_size: str = 'tiny', context_prompt: str = None) -> list:
     """Transcribe a chunk of audio data for live streaming.
-    Prefers faster-whisper (lower latency). Falls back to openai-whisper."""
+    Prefers faster-whisper (lower latency). Falls back to openai-whisper.
+    context_prompt: previous transcript text for continuity."""
     model, backend = get_model(model_size, backend='auto')
+
+    prompt = '請將音頻轉錄為繁體中文。'
+    if context_prompt:
+        prompt += context_prompt[-100:]  # keep last 100 chars to avoid overflow
 
     temp_file = str(UPLOAD_DIR / f"chunk_{int(time.time() * 1000)}.webm")
 
@@ -362,7 +466,8 @@ def transcribe_chunk(audio_data: bytes, model_size: str = 'tiny') -> list:
                 temp_file,
                 language='zh',
                 task='transcribe',
-                initial_prompt='請將音頻轉錄為繁體中文。',
+                vad_filter=True,
+                initial_prompt=prompt,
             )
             return [
                 {'text': seg.text, 'start': seg.start, 'end': seg.end}
@@ -374,7 +479,7 @@ def transcribe_chunk(audio_data: bytes, model_size: str = 'tiny') -> list:
                 language='zh',
                 task='transcribe',
                 verbose=False,
-                initial_prompt='請將音頻轉錄為繁體中文。',
+                initial_prompt=prompt,
                 fp16=False
             )
             return result.get('segments', [])
@@ -703,13 +808,32 @@ def restart_server():
 
 @socketio.on('connect')
 def handle_connect():
-    print(f"Client connected: {request.sid}")
-    emit('connected', {'sid': request.sid, 'message': '已連接到 Whisper 服務器'})
+    sid = request.sid
+    print(f"Client connected: {sid}")
+    with _session_state_lock:
+        _live_session_state[sid] = {
+            'last_text': '',
+            'prev_audio_tail': None,
+            'last_segments': [],
+        }
+    emit('connected', {'sid': sid, 'message': '已連接到 Whisper 服務器'})
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print(f"Client disconnected: {request.sid}")
+    sid = request.sid
+    print(f"Client disconnected: {sid}")
+    with _session_state_lock:
+        _live_session_state.pop(sid, None)
+
+
+@socketio.on('live_silence')
+def handle_live_silence():
+    """Clear overlap buffer when frontend VAD detects silence."""
+    sid = request.sid
+    with _session_state_lock:
+        if sid in _live_session_state:
+            _live_session_state[sid]['prev_audio_tail'] = None
 
 
 @socketio.on('load_model')
@@ -734,7 +858,8 @@ def handle_load_model(data):
 
 @socketio.on('live_audio_chunk')
 def handle_live_chunk(data):
-    """Handle live audio chunk from browser"""
+    """Handle live audio chunk from browser (binary or base64).
+    Supports context carry-over, chunk overlap, and deduplication."""
     sid = request.sid
     audio_data = data.get('audio')
     model_size = data.get('model', 'tiny')  # Use tiny for live for speed
@@ -742,19 +867,53 @@ def handle_live_chunk(data):
     if not audio_data:
         return
 
+    # Support both binary (bytes) and legacy base64 (str)
+    if isinstance(audio_data, bytes):
+        audio_bytes = audio_data
+    else:
+        audio_bytes = base64.b64decode(audio_data)
+
+    # Read session state for context carry-over and overlap
+    with _session_state_lock:
+        state = _live_session_state.get(sid, {})
+        context_text = state.get('last_text', '')
+        prev_tail = state.get('prev_audio_tail')
+        prev_segments = state.get('last_segments', [])
+
     def process_chunk():
         try:
-            audio_bytes = base64.b64decode(audio_data)
-            segments = transcribe_chunk(audio_bytes, model_size)
+            # Chunk overlap: prepend previous audio tail if available
+            merged_audio = _merge_audio_overlap(prev_tail, audio_bytes) if prev_tail else audio_bytes
 
-            for seg in segments:
-                if seg.get('text', '').strip():
+            segments = transcribe_chunk(merged_audio, model_size, context_prompt=context_text)
+
+            # Deduplicate against previous chunk's segments
+            new_segments = _deduplicate_segments(segments, prev_segments)
+
+            # Emit new (non-duplicate) segments
+            emitted_texts = []
+            for seg in new_segments:
+                text = seg.get('text', '').strip()
+                if text:
                     socketio.emit('live_subtitle', {
-                        'text': seg['text'].strip(),
+                        'text': text,
                         'start': seg.get('start', 0),
                         'end': seg.get('end', 0),
                         'timestamp': time.time()
                     }, room=sid)
+                    emitted_texts.append(text)
+
+            # Update session state
+            all_text = ' '.join(emitted_texts)
+            new_tail = _extract_audio_tail(audio_bytes)
+            with _session_state_lock:
+                if sid in _live_session_state:
+                    _live_session_state[sid]['last_text'] = all_text if all_text else context_text
+                    _live_session_state[sid]['prev_audio_tail'] = new_tail
+                    _live_session_state[sid]['last_segments'] = [
+                        seg.get('text', '').strip() for seg in segments if seg.get('text', '').strip()
+                    ]
+
         except Exception as e:
             print(f"Error processing live chunk: {e}")
 
