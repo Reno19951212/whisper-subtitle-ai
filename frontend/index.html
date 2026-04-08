@@ -96,23 +96,12 @@
     main {
       display: grid;
       grid-template-columns: 1fr 360px;
-      grid-template-rows: 1fr;  /* single row fills available height */
       gap: 20px;
       padding: 20px 24px;
+      flex: 1;
       max-width: 1600px;
       margin: 0 auto;
       width: 100%;
-      height: calc(100vh - 60px);  /* fit viewport minus header */
-      overflow: hidden;
-    }
-    /* Left column scrolls independently */
-    main > div:first-child {
-      overflow-y: auto;
-    }
-    /* Right column (transcript) fills grid cell */
-    main > div:last-child,
-    main > .panel:last-child {
-      overflow: hidden;
     }
 
     @media (max-width: 1024px) {
@@ -379,7 +368,7 @@
 
     /* ===== Transcript Panel ===== */
     .transcript-list {
-      height: 300px;
+      max-height: calc(100vh - 350px);
       overflow-y: auto;
       display: flex;
       flex-direction: column;
@@ -799,14 +788,14 @@
       </div>
     </div>
 
-    <!-- Transcript (right column — independent scrollable panel) -->
-    <div class="panel" style="display:flex;flex-direction:column;min-height:0;overflow:hidden;">
+    <!-- Transcript (right column — sticks to viewport while left scrolls) -->
+    <div class="panel">
       <div class="panel-header" style="flex-shrink:0;">
         📄 轉錄文字
         <span id="segmentCount" style="margin-left:auto;font-size:12px;color:var(--text-dim);">0 段</span>
       </div>
       <div class="panel-body" style="padding:12px;flex:1;overflow:hidden;display:flex;flex-direction:column;">
-        <div class="transcript-list" id="transcriptList" style="flex:1;height:auto;max-height:none;">
+        <div class="transcript-list" id="transcriptList">
           <div class="empty-state">
             <div class="empty-icon">📝</div>
             <div>轉錄文字將顯示在這裡</div>
