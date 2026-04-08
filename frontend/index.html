@@ -431,6 +431,10 @@
       background: var(--danger);
       animation: pulse 1s infinite;
     }
+    .live-indicator.speech-active .live-dot {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
 
     /* ===== Toast ===== */
     .toast-container {
@@ -829,6 +833,17 @@ let segments = [];
 let isProcessing = false;
 let subtitleDelay = 0.5;
 let subtitleDuration = 4.0;
+
+// VAD (Voice Activity Detection) state
+let audioContext = null;
+let vadAnalyser = null;
+let vadInterval = null;
+let speechDetectedInChunk = false;
+const VAD_ENERGY_THRESHOLD = 15;  // RMS energy threshold (0-255 scale)
+
+// Frontend deduplication for live subtitles
+const recentLiveTexts = [];
+const MAX_RECENT_TEXTS = 5;
 
 // ============================================================
 // Socket.IO Connection
@@ -1298,6 +1313,53 @@ async function startLive() {
   startAudioCapture();
 }
 
+function setupVAD(audioStream) {
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(audioStream);
+    vadAnalyser = audioContext.createAnalyser();
+    vadAnalyser.fftSize = 512;
+    source.connect(vadAnalyser);
+
+    const dataArray = new Uint8Array(vadAnalyser.frequencyBinCount);
+    const indicator = document.getElementById('liveIndicator');
+
+    vadInterval = setInterval(() => {
+      vadAnalyser.getByteFrequencyData(dataArray);
+      // Compute RMS energy
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i] * dataArray[i];
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+
+      if (rms > VAD_ENERGY_THRESHOLD) {
+        speechDetectedInChunk = true;
+        indicator.classList.add('speech-active');
+      } else {
+        indicator.classList.remove('speech-active');
+      }
+    }, 100);
+  } catch (e) {
+    console.warn('VAD setup failed, sending all chunks:', e);
+    speechDetectedInChunk = true;  // fallback: always send
+  }
+}
+
+function cleanupVAD() {
+  if (vadInterval) {
+    clearInterval(vadInterval);
+    vadInterval = null;
+  }
+  if (audioContext) {
+    audioContext.close().catch(() => {});
+    audioContext = null;
+  }
+  vadAnalyser = null;
+  speechDetectedInChunk = false;
+  document.getElementById('liveIndicator').classList.remove('speech-active');
+}
+
 function startAudioCapture() {
   if (!mediaStream) return;
 
@@ -1310,6 +1372,9 @@ function startAudioCapture() {
   const audioStream = new MediaStream([audioTrack]);
   mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
 
+  // Setup VAD for speech detection
+  setupVAD(audioStream);
+
   const chunks = [];
   mediaRecorder.ondataavailable = (e) => {
     if (e.data.size > 0) {
@@ -1317,12 +1382,19 @@ function startAudioCapture() {
     }
   };
 
-  // Every 3 seconds, send audio chunk to server
+  // Every 3 seconds, send audio chunk to server (only if speech detected)
   mediaRecorder.onstop = async () => {
     if (chunks.length === 0) return;
     const blob = new Blob(chunks, { type: 'audio/webm' });
     chunks.length = 0;
-    await sendAudioChunk(blob);
+
+    if (speechDetectedInChunk) {
+      await sendAudioChunk(blob);
+    } else if (socket?.connected) {
+      // Notify backend to clear overlap buffer on silence
+      socket.emit('live_silence');
+    }
+    speechDetectedInChunk = false;  // reset for next interval
   };
 
   // Send chunks every 3 seconds
@@ -1341,18 +1413,10 @@ async function sendAudioChunk(blob) {
   if (!socket?.connected) return;
 
   const arrayBuffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(arrayBuffer);
 
-  // Convert in chunks to avoid stack overflow on large buffers
-  let binary = '';
-  const CHUNK = 8192;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  const base64 = btoa(binary);
-
+  // Send binary audio directly (Socket.IO v4 handles binary natively)
   socket.emit('live_audio_chunk', {
-    audio: base64,
+    audio: arrayBuffer,
     model: document.getElementById('modelSelect').value
   });
 }
@@ -1362,6 +1426,8 @@ function stopLive() {
     clearInterval(liveChunkInterval);
     liveChunkInterval = null;
   }
+
+  cleanupVAD();
 
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
@@ -1384,9 +1450,19 @@ function stopLive() {
 }
 
 function addLiveSubtitle(data) {
+  const text = (data.text || '').trim();
+  if (!text) return;
+
+  // Frontend dedup: skip if this text closely matches a recent subtitle
+  for (const recent of recentLiveTexts) {
+    if (text === recent || recent.includes(text) || text.includes(recent)) return;
+  }
+  recentLiveTexts.push(text);
+  if (recentLiveTexts.length > MAX_RECENT_TEXTS) recentLiveTexts.shift();
+
   const delay = subtitleDelay * 1000;
   setTimeout(() => {
-    showSubtitleText(data.text);
+    showSubtitleText(text);
   }, delay);
 
   // Add to transcript
@@ -1394,7 +1470,7 @@ function addLiveSubtitle(data) {
     id: segments.length,
     start: data.start || 0,
     end: data.end || 0,
-    text: data.text
+    text: text
   });
 }
 
