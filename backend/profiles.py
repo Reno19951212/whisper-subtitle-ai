@@ -7,6 +7,7 @@ switch between model combinations without reconfiguring manually.
 
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -98,7 +99,7 @@ class ProfileManager:
             raise ValueError(f"Invalid profile data: {errors}")
 
         profile_id = str(uuid.uuid4())
-        profile = {**data, "id": profile_id}
+        profile = {**data, "id": profile_id, "created_at": time.time()}
         self._write_profile(profile_id, profile)
         return profile
 
