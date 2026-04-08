@@ -1151,12 +1151,17 @@ function renderFileList() {
 
     let extraHtml = '';
     if (isDone) {
+      const hasTranslations = f.translation_status === 'done';
+      const proofreadBtn = hasTranslations
+        ? `<a class="btn btn-secondary" href="proofread.html?file_id=${id}" style="background:var(--accent);color:#fff;">校對</a>`
+        : '';
       extraHtml = `
         <div class="file-card-actions">
           ${modelBadge}
           <a class="btn btn-secondary" href="${API_BASE}/api/files/${id}/subtitle.srt" download>SRT</a>
           <a class="btn btn-secondary" href="${API_BASE}/api/files/${id}/subtitle.vtt" download>VTT</a>
           <a class="btn btn-secondary" href="${API_BASE}/api/files/${id}/subtitle.txt" download>TXT</a>
+          ${proofreadBtn}
         </div>`;
     } else if (isBusy && fileProgress[id]) {
       const fp = fileProgress[id];

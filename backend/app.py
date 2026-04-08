@@ -1101,6 +1101,7 @@ def list_files():
                 'error': entry.get('error'),
                 'model': entry.get('model'),
                 'backend': entry.get('backend'),
+                'translation_status': entry.get('translation_status'),
             })
     # Newest first
     files.sort(key=lambda f: f['uploaded_at'], reverse=True)
