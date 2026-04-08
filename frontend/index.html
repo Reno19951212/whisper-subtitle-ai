@@ -733,6 +733,17 @@
       <div class="controls">
 
         <div class="control-group">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <label>Pipeline Profile</label>
+            <span class="range-value" id="activeProfileName" style="font-size:12px;">—</span>
+          </div>
+          <select id="profileSelect" onchange="activateProfile(this.value)">
+            <option value="">Select profile...</option>
+          </select>
+          <div id="profileInfo" style="font-size:11px;margin-top:4px;color:var(--text-dim);"></div>
+        </div>
+
+        <div class="control-group">
           <label>Whisper 模型</label>
           <select id="modelSelect">
             <option value="small" selected>Small - 244M（推薦）</option>
@@ -1720,6 +1731,72 @@ function disableExport() {
 }
 
 // ============================================================
+// Profile Management
+// ============================================================
+let profilesData = [];
+
+async function loadProfiles() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/profiles`);
+    const data = await resp.json();
+    profilesData = data.profiles || [];
+    renderProfileSelect();
+    await loadActiveProfile();
+  } catch (e) {
+    console.warn('Failed to load profiles:', e);
+  }
+}
+
+function renderProfileSelect() {
+  const select = document.getElementById('profileSelect');
+  const currentValue = select.value;
+  select.innerHTML = '<option value="">Select profile...</option>';
+  for (const p of profilesData) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.appendChild(opt);
+  }
+  if (currentValue) select.value = currentValue;
+}
+
+async function loadActiveProfile() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/profiles/active`);
+    const data = await resp.json();
+    const profile = data.profile;
+    const nameEl = document.getElementById('activeProfileName');
+    const infoEl = document.getElementById('profileInfo');
+    const select = document.getElementById('profileSelect');
+
+    if (profile) {
+      nameEl.textContent = profile.name;
+      select.value = profile.id;
+      infoEl.textContent = `ASR: ${profile.asr.engine} (${profile.asr.model_size}) | Translation: ${profile.translation.engine}`;
+    } else {
+      nameEl.textContent = '\u2014';
+      select.value = '';
+      infoEl.textContent = '';
+    }
+  } catch (e) {
+    console.warn('Failed to load active profile:', e);
+  }
+}
+
+async function activateProfile(profileId) {
+  if (!profileId) return;
+  try {
+    const resp = await fetch(`${API_BASE}/api/profiles/${profileId}/activate`, { method: 'POST' });
+    if (resp.ok) {
+      await loadActiveProfile();
+      showToast('Profile activated', 'success');
+    }
+  } catch (e) {
+    showToast('Failed to activate profile', 'error');
+  }
+}
+
+// ============================================================
 // Settings
 // ============================================================
 function updateDelay(val) {
@@ -1871,6 +1948,7 @@ document.getElementById('modelSelect').addEventListener('change', updateModelHin
 // ============================================================
 connectSocket();
 fetchModelStatus();
+loadProfiles();
 </script>
 </body>
 </html>
