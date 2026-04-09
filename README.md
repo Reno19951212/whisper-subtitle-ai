@@ -1,6 +1,6 @@
-# 🎙 AI 字幕轉換 APP
+# 🎙 廣播字幕製作系統
 
-基於 [OpenAI Whisper](https://github.com/openai/whisper) 嘅 AI 語音轉字幕 Web 應用程式。支援上傳影片/音頻檔案或直接從攝像頭/屏幕捕捉，自動將語音即時轉換為**繁體中文字幕**，並同步顯示喺影片畫面上。
+基於 [OpenAI Whisper](https://github.com/openai/whisper) 及本地 AI 翻譯模型嘅專業字幕製作工具。將英文影片自動轉錄、翻譯為**繁體中文（粵語/書面語）**字幕，經人工校對後燒入影片輸出。
 
 ---
 
@@ -8,24 +8,24 @@
 
 | 功能 | 說明 |
 |------|------|
-| 📁 **文件上傳與管理** | 拖放或選擇影片/音頻，文件上傳後持久保存，直到手動刪除 |
-| 📋 **文件列表** | 所有已上傳文件以卡片形式顯示，包含狀態指示及下載選項 |
+| 📁 **文件上傳與管理** | 拖放或選擇影片/音頻，支援 MP4、MOV、AVI、MKV、WebM、MXF 等格式 |
+| 🤖 **英文語音轉錄** | Whisper ASR 自動將英文語音轉為英文文字（支援 faster-whisper 加速） |
+| 🌐 **中文翻譯** | 本地 Ollama + Qwen2.5 模型，將英文字幕翻譯為繁體中文（粵語或書面語） |
+| 📖 **術語表管理** | 自訂英中術語對照表，確保專業名詞翻譯一致（支援 CSV 匯入/匯出） |
+| ⚙️ **Profile 配置** | 可切換不同 ASR + 翻譯引擎組合，適應開發/生產環境 |
+| ✏️ **字幕校對編輯器** | 獨立校對頁面，左右並排影片與字幕表格，逐句審核、編輯、批核 |
+| 🎬 **燒入字幕輸出** | 配置字體後，將已批核字幕燒入影片，輸出 MP4 或 MXF (ProRes 422 HQ) |
 | 📊 **轉錄進度條** | 轉錄時顯示進度百分比、已處理/總時長、預計剩餘時間 |
-| 🤖 **模型資訊顯示** | 每個文件顯示所用的 Whisper 模型及引擎（如 small · openai） |
-| ✏️ **字幕內容編輯** | 點擊轉錄文字即可直接修改，自動同步到字幕預覽及導出文件 |
-| 🎥 **實時直播** | 從攝像頭或屏幕共享捕捉，支援語音活動偵測（VAD）、音訊重疊、上下文連貫 |
-| 💬 **繁體中文字幕** | 強制輸出繁體中文，字幕疊加於影片畫面 |
-| ⏱ **延遲同步** | 0–5 秒可調延遲，確保字幕與語音同步 |
 | ⚡ **雙引擎支援** | 自動選用 faster-whisper（快 4–8 倍）或 openai-whisper |
-| 🤖 **6 種模型** | tiny → turbo，按速度/精準度自由選擇 |
-| 💾 **三種導出** | 每個文件獨立提供 SRT、VTT、TXT 下載 |
+| 💾 **字幕導出** | 每個文件獨立提供 SRT、VTT、TXT 下載 |
 
 ---
 
 ## 系統需求
 
 - **Python** 3.8 或以上
-- **FFmpeg**（用於從影片提取音頻）
+- **FFmpeg**（用於從影片提取音頻及燒入字幕）
+- **Ollama**（本地 LLM 翻譯引擎）— [下載](https://ollama.com/download)
 - **pip**（Python 套件管理工具）
 - 現代瀏覽器（Chrome / Firefox / Safari / Edge）
 
@@ -36,7 +36,6 @@
 ### 第一步：安裝
 
 ```bash
-cd "Whisper 開發"
 ./setup.sh
 ```
 
@@ -45,118 +44,116 @@ cd "Whisper 開發"
 - 建立 Python 虛擬環境（`backend/venv/`）
 - 安裝所有 Python 依賴套件
 
-> 如果系統未安裝 FFmpeg，腳本會嘗試用 Homebrew（macOS）或 apt（Linux）自動安裝。
+### 第二步：安裝 Ollama 及翻譯模型
 
-### 第二步：啟動
+```bash
+# 安裝 Ollama（macOS）
+# 從 https://ollama.com/download 下載安裝
+
+# 下載翻譯模型
+ollama pull qwen2.5:3b
+```
+
+### 第三步：啟動
 
 ```bash
 ./start.sh
 ```
 
 啟動腳本會：
-1. 啟動後端服務器（`http://localhost:5000`）
+1. 啟動後端服務器（`http://localhost:5001`）
 2. 預加載 Whisper small 模型
 3. 自動在瀏覽器打開前端頁面
 
 按 `Ctrl+C` 停止服務器。
 
-### 手動啟動（可選）
+---
 
-```bash
-# 啟動後端
-cd backend
-source venv/bin/activate
-python app.py
+## 使用流程
 
-# 前端：直接在瀏覽器打開
-open frontend/index.html
-```
+### 1. 選擇 Profile
+
+在右側「設置」面板嘅「Pipeline Profile」下拉選單中選擇配置：
+- **Development** — Whisper tiny + Mock 翻譯（開發測試用）
+- **Broadcast Production** — Whisper + Qwen2.5 翻譯（正式使用）
+
+### 2. 上傳英文影片
+
+- 拖放影片至上傳區域，或點擊選擇文件
+- 支援格式：MP4、MOV、AVI、MKV、WebM、MXF、MP3、WAV 等
+- 點擊「🚀 上傳並轉錄」
+
+### 3. 自動轉錄 + 翻譯
+
+- 系統自動進行英文語音轉錄
+- 轉錄完成後自動觸發中文翻譯
+- 右側轉錄面板會顯示翻譯後嘅中文字幕
+- 播放影片時字幕會同步顯示
+
+### 4. 校對字幕
+
+- 文件卡片上會出現紫色「**校對**」按鈕
+- 點擊進入校對編輯器（`proofread.html`）
+- 左邊播放影片，右邊逐句審核翻譯
+- 可直接編輯中文翻譯，按 Enter 儲存並批核
+- 「批核所有未改動」可一次批核所有未修改嘅句子
+
+**鍵盤快捷鍵：**
+| 按鍵 | 功能 |
+|------|------|
+| ↑↓ | 切換段落 |
+| Enter | 批核當前段落 |
+| E | 編輯翻譯 |
+| Esc | 取消編輯 |
+| Space | 播放/暫停影片 |
+
+### 5. 燒入字幕輸出
+
+- 所有段落批核完成後，「匯出燒入字幕」按鈕啟用
+- 選擇輸出格式：**MP4** 或 **MXF (ProRes)**
+- 點擊開始渲染，完成後自動下載
 
 ---
 
 ## 項目結構
 
 ```
-Whisper 開發/
+whisper-subtitle-ai/
 ├── backend/
-│   ├── app.py              # Flask 後端服務器（REST API + WebSocket）
-│   ├── requirements.txt    # Python 依賴清單
-│   └── data/               # 已上傳文件及轉錄結果（自動生成，已 gitignore）
+│   ├── app.py              # Flask 後端服務器
+│   ├── profiles.py         # Profile 管理模組
+│   ├── glossary.py         # 術語表管理模組
+│   ├── renderer.py         # 字幕渲染模組（ASS + FFmpeg）
+│   ├── asr/                # ASR 引擎抽象層
+│   ├── translation/        # 翻譯引擎抽象層
+│   ├── config/             # 配置文件（profiles、glossaries）
+│   ├── tests/              # 測試套件（109 個測試）
+│   └── data/               # 上傳文件及渲染輸出（自動生成）
 ├── frontend/
-│   └── index.html          # 完整 Web 應用（單一文件，無需構建）
+│   ├── index.html          # 主控台 — 上傳、轉錄、翻譯
+│   └── proofread.html      # 校對編輯器 — 審核、編輯、批核、渲染
+├── docs/                   # 設計文檔及實作計劃
 ├── setup.sh                # 一鍵安裝腳本
 ├── start.sh                # 一鍵啟動腳本
-├── CLAUDE.md               # 開發者參考文件（英文）
 └── README.md               # 本文件
 ```
 
-### 後端（`backend/app.py`）
-
-- **Flask + Flask-SocketIO**：HTTP REST API 及 WebSocket 雙向通訊
-- **Whisper 引擎**：優先使用 `faster-whisper`（需額外安裝），自動回退至 `openai-whisper`
-- **FFmpeg**：從影片文件提取 16kHz 單聲道音頻
-- **背景線程**：轉錄在後台執行，每完成一個段落即時通過 WebSocket 推送至前端
-- **文件持久化**：上傳的文件保存在 `data/uploads/`，元數據記錄在 `data/registry.json`，重啟不丟失
-
-### 前端（`frontend/index.html`）
-
-- 純 HTML/CSS/JavaScript，無需任何構建工具
-- **文件上傳模式**：選擇或拖放檔案 → 上傳至後端 → 接收字幕段落 → 同步顯示於影片
-- **文件列表**：已上傳文件以卡片顯示，點擊可預覽，轉錄完成後直接提供 SRT/VTT/TXT 下載
-- **實時直播模式**：瀏覽器錄製音頻 → 每 3 秒傳送至後端 → 接收字幕 → 顯示覆蓋層
-
 ---
 
-## 使用說明
+## 術語表管理
 
-### 文件上傳模式
+系統內建「Broadcast News」術語表，包含常用香港廣播新聞術語：
 
-1. 點擊「📁 文件上傳」頁籤
-2. 拖放影片/音頻至上傳區域，或點擊選擇文件
-3. 在右側「設置」面板選擇 Whisper 模型
-4. 點擊「🚀 上傳並轉錄」
-5. 文件會出現在下方的文件列表中，顯示轉錄狀態
-6. 轉錄完成後，文件卡片會顯示 SRT / VTT / TXT 下載按鈕
-7. 點擊文件卡片可隨時切換預覽不同文件
-8. 點擊 ✕ 按鈕可刪除文件
-
-> 上傳的文件會持久保存在服務器上，除非你手動刪除，重啟服務器後文件仍然存在。
-
-**支援格式：** MP4、MOV、AVI、MKV、WebM、MP3、WAV、M4A、AAC、FLAC、OGG
-
-### 實時直播模式
-
-1. 點擊「🎥 實時錄製」頁籤
-2. 選擇視頻源：攝像頭 或 屏幕共享
-3. 點擊「▶ 開始直播」，授予瀏覽器錄製權限
-4. 字幕會每 3 秒更新一次（依轉錄速度）
-5. 點擊「⏹ 停止」結束直播
-
-> **提示**：實時模式建議使用 `tiny` 或 `base` 模型以降低延遲。
-
-### 字幕同步設置
-
-| 設置 | 說明 |
+| 英文 | 中文 |
 |------|------|
-| **字幕延遲** | 字幕相對於音頻出現的時間偏移。若字幕早於語音顯示，增加延遲值 |
-| **字幕顯示時長** | 每條字幕在畫面停留的秒數（1–10 秒） |
-| **字幕字號** | 字幕文字大小（14–48 px） |
+| Legislative Council | 立法會 |
+| Chief Executive | 行政長官 |
+| Hong Kong | 香港 |
+| government | 政府 |
+| police | 警方 |
+| ... | ... |
 
-### 導出字幕
-
-轉錄完成後，有兩種導出方式：
-
-**方式一：文件卡片下載**（推薦）
-- 每個已完成轉錄的文件卡片上會直接顯示 **SRT** / **VTT** / **TXT** 下載按鈕
-- 點擊即可下載對應格式的字幕文件
-
-**方式二：右側轉錄面板導出**
-- 點擊底部的 SRT / VTT / TXT 按鈕導出當前顯示的轉錄內容
-
-**格式說明：**
-- **SRT**：標準字幕格式，兼容大部分影片播放器（如 VLC、PotPlayer）
-- **VTT**：WebVTT 格式，可直接用於 HTML5 `<video>` 的 `<track>` 元素
-- **TXT**：純文字逐字稿，每段一行
+可通過 API 新增、編輯、匯入 CSV 術語表。術語會自動注入翻譯 prompt，確保專業名詞翻譯一致。
 
 ---
 
@@ -164,18 +161,14 @@ Whisper 開發/
 
 | 模型 | 參數量 | 速度 | 精準度 | 建議用途 |
 |------|--------|------|--------|---------|
-| tiny | 39M | 最快 | 基礎 | 實時直播 |
-| base | 74M | 快 | 良好 | 實時直播 |
-| small | 244M | 中等 | 優良 | 文件轉錄（推薦預設） |
+| tiny | 39M | 最快 | 基礎 | 開發測試 |
+| base | 74M | 快 | 良好 | 快速轉錄 |
+| small | 244M | 中等 | 優良 | 一般使用（推薦） |
 | medium | 769M | 慢 | 出色 | 高精準度需求 |
 | large | 1550M | 最慢 | 最佳 | 最高精準度 |
 | turbo | 809M | 快 | 優良 | 速度與精準度平衡 |
 
-> **提示**：安裝 `faster-whisper` 後，所有模型速度可提升 4–8 倍，記憶體需求亦降低。
->
-> ```bash
-> pip install faster-whisper
-> ```
+> **提示**：安裝 `faster-whisper` 後，所有模型速度可提升 4–8 倍。
 
 ---
 
@@ -183,67 +176,64 @@ Whisper 開發/
 
 後端提供以下 REST 端點（基礎 URL：`http://localhost:5001`）：
 
+### 文件管理
 | 方法 | 路徑 | 說明 |
 |------|------|------|
-| GET | `/api/health` | 服務器狀態及已加載模型 |
-| GET | `/api/models` | 可用模型清單 |
-| POST | `/api/transcribe` | 上傳並異步轉錄（通過 WebSocket 串流結果） |
-| POST | `/api/transcribe/sync` | 同步轉錄（適合小文件） |
-| GET | `/api/files` | 列出所有已上傳文件及狀態 |
-| GET | `/api/files/<id>/media` | 取得原始媒體文件 |
-| GET | `/api/files/<id>/subtitle.srt` | 下載 SRT 字幕 |
-| GET | `/api/files/<id>/subtitle.vtt` | 下載 VTT 字幕 |
-| GET | `/api/files/<id>/subtitle.txt` | 下載 TXT 逐字稿 |
-| GET | `/api/files/<id>/segments` | 取得轉錄段落（用於載入字幕） |
-| PATCH | `/api/files/<id>/segments/<seg_id>` | 修改單個段落文字 |
-| DELETE | `/api/files/<id>` | 刪除文件及轉錄數據 |
+| POST | `/api/transcribe` | 上傳並轉錄（自動觸發翻譯） |
+| GET | `/api/files` | 列出所有文件 |
+| GET | `/api/files/<id>/media` | 取得媒體文件 |
+| GET | `/api/files/<id>/subtitle.<fmt>` | 下載字幕（srt/vtt/txt） |
+| DELETE | `/api/files/<id>` | 刪除文件 |
+
+### Profile 管理
+| 方法 | 路徑 | 說明 |
+|------|------|------|
+| GET | `/api/profiles` | 列出所有 Profile |
+| POST | `/api/profiles` | 建立 Profile |
+| GET | `/api/profiles/active` | 取得當前 Profile |
+| POST | `/api/profiles/<id>/activate` | 切換 Profile |
+
+### 翻譯與校對
+| 方法 | 路徑 | 說明 |
+|------|------|------|
+| POST | `/api/translate` | 翻譯文件字幕 |
+| GET | `/api/files/<id>/translations` | 取得翻譯結果 |
+| PATCH | `/api/files/<id>/translations/<idx>` | 修改翻譯（自動批核） |
+| POST | `/api/files/<id>/translations/approve-all` | 批量批核 |
+
+### 術語表
+| 方法 | 路徑 | 說明 |
+|------|------|------|
+| GET | `/api/glossaries` | 列出術語表 |
+| POST | `/api/glossaries/<id>/import` | 匯入 CSV |
+| GET | `/api/glossaries/<id>/export` | 匯出 CSV |
+
+### 渲染
+| 方法 | 路徑 | 說明 |
+|------|------|------|
+| POST | `/api/render` | 開始燒入字幕渲染 |
+| GET | `/api/renders/<id>` | 查詢渲染狀態 |
+| GET | `/api/renders/<id>/download` | 下載渲染結果 |
 
 ---
 
 ## 更新記錄
 
-### v1.6 — 增強實時直播轉錄
-- **二進制 WebSocket**：音頻以 binary ArrayBuffer 直接傳輸，減少約 33% 傳輸開銷（取代 base64 編碼）
-- **語音活動偵測（VAD）**：前端使用 Web Audio API AnalyserNode 計算音頻能量，靜音時跳過傳輸；後端 faster-whisper 啟用 `vad_filter` 作為安全網
-- **上下文連貫**：前一段轉錄文字作為下一段的 `initial_prompt`，提升跨片段語句的連貫性
-- **音訊重疊**：每段音頻末尾 1 秒保留並拼接到下一段，防止句子在邊界被截斷
-- **重複去除**：後端以字符重疊率（>70%）去重；前端追蹤最近 5 條字幕避免重複顯示
-- **視覺反饋**：說話時 LIVE 指示燈變綠，靜音時保持紅色
-- 新增 WebSocket 事件：`live_silence`（前端 → 後端），靜音時清除重疊緩衝區
+### v2.0 — 廣播字幕製作系統
+- 全新 pipeline：英文影片 → ASR 轉錄 → 中文翻譯 → 校對 → 燒入字幕輸出
+- Profile 系統：可切換 ASR + 翻譯引擎組合
+- 多引擎 ASR：統一介面支援 Whisper、Qwen3-ASR（stub）、FLG-ASR（stub）
+- 翻譯 pipeline：本地 Ollama + Qwen2.5，支援粵語及書面語風格
+- 術語表管理：英中對照，CSV 匯入/匯出
+- 校對編輯器：獨立頁面，左右並排，逐句審核
+- 字幕渲染：ASS 字幕 + FFmpeg 燒入，支援 MP4 及 MXF (ProRes) 輸出
+- 自動翻譯：轉錄完成自動觸發翻譯
+- 移除實時錄製模式：專注文件式廣播字幕製作流程
+- 109 個自動化測試
 
-### v1.3 — 文件持久化管理
-- 上傳的文件現在會持久保存在服務器上，直到手動刪除
-- 文件列表以卡片形式顯示，包含轉錄狀態指示
-- 轉錄完成的文件卡片直接提供 SRT / VTT / TXT 下載按鈕
-- 點擊文件卡片可切換預覽，點擊 ✕ 刪除文件
-- 文件數據在服務器重啟後不會丟失
-- 新增 REST API：文件列表、媒體服務、字幕下載、文件刪除
-- 服務器 Port 改為 5001（避免 macOS AirPlay 衝突）
-
-### v1.5 — 模型資訊顯示與字幕編輯
-- 文件卡片顯示所用的 Whisper 模型及引擎（如「small · openai」）
-- 轉錄文字支援點擊即編輯：點擊文字 → 直接修改 → 按 Enter 儲存 / Escape 取消
-- 修改後自動同步至字幕預覽及所有導出格式（SRT/VTT/TXT）
-- 新增 API：段落文字取得及修改
-
-### v1.4 — 轉錄進度條與預計剩餘時間
-- 轉錄過程中，文件卡片會顯示進度條、百分比、已處理時長/總時長
-- 顯示「預計剩餘」時間，根據已處理速率動態計算
-- 後端使用 `ffprobe` 偵測媒體總時長，每個轉錄段落回傳進度資訊
-
-### v1.2 — 雙引擎支援與 WebVTT 導出
-- 新增 `faster-whisper` 引擎支援（自動選用，快 4–8 倍）
-- 新增 WebVTT（`.vtt`）字幕導出格式
-- 修復實時模式音頻臨時文件副檔名錯誤
-
-### v1.1 — 錯誤修復與穩定性提升
-- 修復字幕延遲方向錯誤（之前延遲越大反而字幕越早出現）
-- 修復 WebSocket 從背景線程調用 `emit()` 導致的崩潰
-- 修復大音頻 Buffer 轉 Base64 時的堆疊溢出問題
-
-### v1.0 — 初始版本
-- 文件上傳轉錄（支援多種影片及音頻格式）
-- 實時攝像頭/屏幕直播轉錄
-- 繁體中文字幕即時顯示
-- 字幕延遲同步、時長、字號調整
-- SRT 及 TXT 字幕導出
+### v1.0–v1.5 — 原始版本
+- 文件上傳轉錄，支援多種格式
+- Whisper ASR + faster-whisper 加速
+- 轉錄進度條及預計剩餘時間
+- 字幕內容編輯
+- SRT/VTT/TXT 導出
