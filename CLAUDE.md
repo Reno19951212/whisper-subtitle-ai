@@ -36,12 +36,15 @@ whisper-subtitle-ai/
 │   ├── translation/            # Translation engine abstraction
 │   │   ├── __init__.py         # TranslationEngine ABC + factory
 │   │   ├── ollama_engine.py    # Ollama/Qwen implementation
-│   │   └── mock_engine.py      # Mock engine for dev/testing
+│   │   ├── mock_engine.py      # Mock engine for dev/testing
+│   │   └── sentence_pipeline.py # Sentence-aware merge/redistribute (experimental, not active)
+│   ├── language_config.py      # Per-language ASR/translation parameters
 │   ├── config/                 # Configuration files
 │   │   ├── settings.json       # Active profile pointer
 │   │   ├── profiles/           # Profile JSON files
-│   │   └── glossaries/         # Glossary JSON files
-│   ├── tests/                  # Test suite (109 tests)
+│   │   ├── glossaries/         # Glossary JSON files
+│   │   └── languages/          # Per-language config (en.json, zh.json)
+│   ├── tests/                  # Test suite (145 tests)
 │   ├── data/                   # Runtime: uploads, registry, renders (gitignored)
 │   └── requirements.txt        # Python dependencies
 ├── frontend/
@@ -91,7 +94,9 @@ Output Video with burnt-in Chinese subtitles (MP4 / MXF ProRes)
 
 **`asr/`** — Unified ASR interface. `ASREngine` ABC with `transcribe(audio_path, language)` method. Factory function creates the correct engine from profile config. WhisperEngine is fully implemented; Qwen3 and FLG are stubs.
 
-**`translation/`** — Unified translation interface. `TranslationEngine` ABC with `translate(segments, glossary, style)` method. OllamaTranslationEngine calls local Ollama API with batch prompts. MockTranslationEngine for dev/testing.
+**`translation/`** — Unified translation interface. `TranslationEngine` ABC with `translate(segments, glossary, style, batch_size, temperature)` method. OllamaTranslationEngine calls local Ollama API with batch prompts. MockTranslationEngine for dev/testing. `sentence_pipeline.py` contains experimental merge→translate→redistribute logic (not active — kept for future iteration).
+
+**`language_config.py`** — Per-language ASR segmentation params (max_words_per_segment, max_segment_duration) and translation params (batch_size, temperature). JSON file storage in `config/languages/`. Validated ranges enforced.
 
 ### Backend (`app.py`)
 
@@ -152,6 +157,9 @@ Output Video with burnt-in Chinese subtitles (MP4 / MXF ProRes)
 | DELETE | `/api/glossaries/<id>/entries/<eid>` | Delete entry |
 | POST | `/api/glossaries/<id>/import` | Import CSV |
 | GET | `/api/glossaries/<id>/export` | Export CSV |
+| GET | `/api/languages` | List language configs |
+| GET | `/api/languages/<id>` | Get language config |
+| PATCH | `/api/languages/<id>` | Update language config |
 | GET | `/api/files/<id>/translations` | Get translations with approval status |
 | PATCH | `/api/files/<id>/translations/<idx>` | Update translation text (auto-approve) |
 | POST | `/api/files/<id>/translations/<idx>/approve` | Approve single translation |
@@ -188,6 +196,17 @@ Whenever a new feature is completed or existing functionality is modified, you *
 ---
 
 ## Completed Features
+
+### v2.1 — Language Config, Frontend UI, Bug Fixes
+- **Language config system**: Per-language ASR params (max_words_per_segment, max_segment_duration) and translation params (batch_size, temperature) with validation
+- **Segment post-processing**: `split_segments()` splits oversized ASR output at sentence boundaries
+- **Frontend Language Config panel**: Collapsible panel in dashboard sidebar to view/edit per-language ASR and translation parameters
+- **Frontend Glossary panel**: Collapsible panel to manage glossary entries (add/delete/CSV import) directly from dashboard
+- **Translation status badges**: File cards show 待翻譯/翻譯中.../翻譯完成 status with manual translate button
+- **Re-translate button**: Manually trigger translation for any file (待翻譯 shows "▶ 翻譯", 翻譯完成 shows "🔄 重新翻譯")
+- **Bug fixes**: Glossary entries display (API format mismatch), drag-drop upload, validation error toast, CSV import count, translation_status lifecycle
+- **Sentence-aware pipeline (experimental, not active)**: merge_to_sentences → translate → redistribute_to_segments with pySBD. Kept in codebase for future iteration.
+- **145 automated tests** (+36 new: language config, segment utils, sentence pipeline)
 
 ### v2.0 — Broadcast Subtitle Pipeline
 - **Complete pipeline rewrite**: English video → ASR → Translation → Proof-reading → Burnt-in subtitle output
