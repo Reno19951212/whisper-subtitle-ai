@@ -108,3 +108,57 @@ def test_redistribute_shared_segment_merged():
     assert result[1]["zh_text"] == "第二句話。"
     assert result[0]["start"] == 0.0
     assert result[1]["start"] == 3.0
+
+
+def test_validate_all_valid():
+    from translation.sentence_pipeline import validate_batch
+    results = [
+        {"start": 0.0, "end": 2.0, "en_text": "Hello.", "zh_text": "你好。"},
+        {"start": 2.0, "end": 4.0, "en_text": "World.", "zh_text": "世界。"},
+    ]
+    assert validate_batch(results) == []
+
+
+def test_validate_repetition():
+    from translation.sentence_pipeline import validate_batch
+    results = [
+        {"start": 0.0, "end": 1.0, "en_text": "A", "zh_text": "重複"},
+        {"start": 1.0, "end": 2.0, "en_text": "B", "zh_text": "重複"},
+        {"start": 2.0, "end": 3.0, "en_text": "C", "zh_text": "重複"},
+        {"start": 3.0, "end": 4.0, "en_text": "D", "zh_text": "正常"},
+    ]
+    bad = validate_batch(results)
+    assert 0 in bad
+    assert 1 in bad
+    assert 2 in bad
+    assert 3 not in bad
+
+
+def test_validate_missing():
+    from translation.sentence_pipeline import validate_batch
+    results = [
+        {"start": 0.0, "end": 2.0, "en_text": "Hello.", "zh_text": "你好。"},
+        {"start": 2.0, "end": 4.0, "en_text": "World.", "zh_text": "[TRANSLATION MISSING] World."},
+    ]
+    bad = validate_batch(results)
+    assert 1 in bad
+    assert 0 not in bad
+
+
+def test_validate_too_long():
+    from translation.sentence_pipeline import validate_batch
+    long_zh = "一" * 33
+    results = [
+        {"start": 0.0, "end": 2.0, "en_text": "Short.", "zh_text": long_zh},
+    ]
+    bad = validate_batch(results)
+    assert 0 in bad
+
+
+def test_validate_hallucination():
+    from translation.sentence_pipeline import validate_batch
+    results = [
+        {"start": 0.0, "end": 2.0, "en_text": "Hi", "zh_text": "一二三四五六七"},
+    ]
+    bad = validate_batch(results)
+    assert 0 in bad
