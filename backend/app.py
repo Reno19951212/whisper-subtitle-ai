@@ -641,6 +641,8 @@ def api_translate_file():
     translation_config = profile.get("translation", {})
     style = style_override or translation_config.get("style", "formal")
 
+    _update_file(file_id, translation_status='translating')
+
     try:
         from translation import create_translation_engine
         engine = create_translation_engine(translation_config)
@@ -660,8 +662,9 @@ def api_translate_file():
         lang_config_id = profile.get("asr", {}).get("language_config_id", profile.get("asr", {}).get("language", "en"))
         lang_config = _language_config_manager.get(lang_config_id)
         trans_params = lang_config["translation"] if lang_config else DEFAULT_TRANSLATION_CONFIG
-        translated = engine.translate(
-            asr_segments, glossary=glossary_entries, style=style,
+        from translation.sentence_pipeline import translate_with_sentences
+        translated = translate_with_sentences(
+            engine, asr_segments, glossary=glossary_entries, style=style,
             batch_size=trans_params["batch_size"],
             temperature=trans_params["temperature"],
         )
@@ -1057,6 +1060,13 @@ def transcribe_file():
             if not engine_name:
                 return
 
+            _update_file(fid, translation_status='translating')
+            if session_id:
+                socketio.emit('file_updated', {
+                    'id': fid,
+                    'translation_status': 'translating',
+                }, room=session_id)
+
             from translation import create_translation_engine
             engine = create_translation_engine(translation_config)
 
@@ -1076,8 +1086,9 @@ def transcribe_file():
             lang_config_id = profile.get("asr", {}).get("language_config_id", profile.get("asr", {}).get("language", "en"))
             lang_config = _language_config_manager.get(lang_config_id)
             trans_params = lang_config["translation"] if lang_config else DEFAULT_TRANSLATION_CONFIG
-            translated = engine.translate(
-                asr_segments, glossary=glossary_entries, style=style,
+            from translation.sentence_pipeline import translate_with_sentences
+            translated = translate_with_sentences(
+                engine, asr_segments, glossary=glossary_entries, style=style,
                 batch_size=trans_params["batch_size"],
                 temperature=trans_params["temperature"],
             )
@@ -1093,9 +1104,11 @@ def transcribe_file():
                 }, room=session_id)
         except Exception as e:
             print(f"Auto-translate failed for {fid}: {e}")
+            _update_file(fid, translation_status=None)
             if session_id:
                 socketio.emit('file_updated', {
                     'id': fid,
+                    'translation_status': None,
                     'translation_error': str(e),
                 }, room=session_id)
 
