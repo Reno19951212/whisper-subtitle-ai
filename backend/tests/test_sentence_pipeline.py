@@ -56,3 +56,55 @@ def test_merge_shared_segment():
         s["seg_word_counts"].get(1, 0) for s in result
     )
     assert total_seg1_words == 4
+
+
+def test_redistribute_single_sentence_three_segments():
+    from translation.sentence_pipeline import merge_to_sentences, redistribute_to_segments
+    original_segments = [
+        {"start": 0.0, "end": 2.0, "text": "The cat sat on"},
+        {"start": 2.0, "end": 5.0, "text": "the mat and then"},
+        {"start": 5.0, "end": 7.0, "text": "went to sleep."},
+    ]
+    merged = merge_to_sentences(original_segments)
+    zh_sentences = ["貓坐在墊子上，然後去睡覺了。"]
+    result = redistribute_to_segments(merged, zh_sentences, original_segments)
+    assert len(result) == 3
+    combined = "".join(r["zh_text"] for r in result)
+    assert combined == "貓坐在墊子上，然後去睡覺了。"
+    assert result[0]["start"] == 0.0
+    assert result[0]["end"] == 2.0
+    assert result[1]["start"] == 2.0
+    assert result[1]["end"] == 5.0
+    assert result[2]["start"] == 5.0
+    assert result[2]["end"] == 7.0
+    assert result[0]["en_text"] == "The cat sat on"
+    assert result[2]["en_text"] == "went to sleep."
+
+
+def test_redistribute_prefers_punctuation_break():
+    from translation.sentence_pipeline import merge_to_sentences, redistribute_to_segments
+    original_segments = [
+        {"start": 0.0, "end": 3.0, "text": "Hello there my friend"},
+        {"start": 3.0, "end": 6.0, "text": "how are you doing today."},
+    ]
+    merged = merge_to_sentences(original_segments)
+    zh_sentences = ["你好啊，我的朋友你今天怎麼樣。"]
+    result = redistribute_to_segments(merged, zh_sentences, original_segments)
+    assert len(result) == 2
+    assert result[0]["zh_text"].endswith("，") or "，" in result[0]["zh_text"]
+
+
+def test_redistribute_shared_segment_merged():
+    from translation.sentence_pipeline import merge_to_sentences, redistribute_to_segments
+    original_segments = [
+        {"start": 0.0, "end": 3.0, "text": "First sentence."},
+        {"start": 3.0, "end": 6.0, "text": "Second sentence."},
+    ]
+    merged = merge_to_sentences(original_segments)
+    zh_sentences = ["第一句話。", "第二句話。"]
+    result = redistribute_to_segments(merged, zh_sentences, original_segments)
+    assert len(result) == 2
+    assert result[0]["zh_text"] == "第一句話。"
+    assert result[1]["zh_text"] == "第二句話。"
+    assert result[0]["start"] == 0.0
+    assert result[1]["start"] == 3.0

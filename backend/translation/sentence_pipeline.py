@@ -66,3 +66,70 @@ def merge_to_sentences(segments: List[dict]) -> List[MergedSentence]:
         word_offset += sent_word_count
 
     return result
+
+
+_ZH_PUNCTUATION = set("。，、！？；：）」』】")
+
+
+def _find_break_point(text: str, target: int, search_range: int = 3) -> int:
+    """Find a natural break point near the target character index."""
+    best = target
+    for offset in range(search_range + 1):
+        for candidate in [target + offset, target - offset]:
+            if 0 < candidate <= len(text) and text[candidate - 1] in _ZH_PUNCTUATION:
+                return candidate
+    return best
+
+
+def redistribute_to_segments(
+    merged_sentences: List[MergedSentence],
+    zh_sentences: List[str],
+    original_segments: List[dict],
+) -> List[TranslatedSegment]:
+    """Redistribute Chinese translations back to original segment timestamps."""
+    seg_parts: Dict[int, List[str]] = {}
+    for seg_idx in range(len(original_segments)):
+        seg_parts[seg_idx] = []
+
+    for sent_idx, merged in enumerate(merged_sentences):
+        zh_text = zh_sentences[sent_idx] if sent_idx < len(zh_sentences) else ""
+        total_zh_chars = len(zh_text)
+        total_en_words = sum(merged["seg_word_counts"].values())
+
+        if total_en_words == 0 or total_zh_chars == 0:
+            for sid in merged["seg_indices"]:
+                seg_parts[sid].append("")
+            continue
+
+        if len(merged["seg_indices"]) == 1:
+            seg_parts[merged["seg_indices"][0]].append(zh_text)
+            continue
+
+        char_offset = 0
+        for i, sid in enumerate(merged["seg_indices"]):
+            en_words = merged["seg_word_counts"].get(sid, 0)
+            proportion = en_words / total_en_words
+
+            if i == len(merged["seg_indices"]) - 1:
+                allocated = zh_text[char_offset:]
+            else:
+                target_end = char_offset + round(total_zh_chars * proportion)
+                target_end = min(target_end, total_zh_chars)
+                break_at = _find_break_point(zh_text, target_end)
+                break_at = max(char_offset, min(break_at, total_zh_chars))
+                allocated = zh_text[char_offset:break_at]
+                char_offset = break_at
+
+            seg_parts[sid].append(allocated)
+
+    results: List[TranslatedSegment] = []
+    for seg_idx, seg in enumerate(original_segments):
+        zh_combined = "".join(seg_parts.get(seg_idx, []))
+        results.append(TranslatedSegment(
+            start=seg["start"],
+            end=seg["end"],
+            en_text=seg["text"],
+            zh_text=zh_combined,
+        ))
+
+    return results
