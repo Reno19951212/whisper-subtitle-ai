@@ -3,7 +3,7 @@
   "name": "Chinese",
   "asr": {
     "max_words_per_segment": 25,
-    "max_segment_duration": 8.0
+    "max_segment_duration": 8
   },
   "translation": {
     "batch_size": 8,

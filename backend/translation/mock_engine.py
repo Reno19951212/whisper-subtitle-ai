@@ -15,3 +15,19 @@ class MockTranslationEngine(TranslationEngine):
 
     def get_info(self) -> dict:
         return {"engine": "mock", "model": "mock", "available": True, "styles": ["formal", "cantonese"]}
+
+    def get_params_schema(self) -> dict:
+        return {
+            "engine": "mock",
+            "params": {
+                "style": {
+                    "type": "string",
+                    "description": "Translation style",
+                    "enum": ["formal", "cantonese"],
+                    "default": "formal",
+                },
+            },
+        }
+
+    def get_models(self) -> list:
+        return [{"engine": "mock", "model": "mock", "available": True}]

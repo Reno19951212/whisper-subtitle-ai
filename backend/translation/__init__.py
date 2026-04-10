@@ -19,6 +19,14 @@ class TranslationEngine(ABC):
     def get_info(self) -> dict:
         """Return engine metadata."""
 
+    @abstractmethod
+    def get_params_schema(self) -> dict:
+        """Return JSON schema describing configurable parameters for this engine."""
+
+    @abstractmethod
+    def get_models(self) -> List[dict]:
+        """Return list of available models for this engine."""
+
 
 def create_translation_engine(translation_config: dict) -> TranslationEngine:
     engine_name = translation_config.get("engine", "")

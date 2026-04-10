@@ -20,3 +20,22 @@ class Qwen3ASREngine(ASREngine):
             "languages": ["en", "zh"],
             "available": False,
         }
+
+    def get_params_schema(self) -> dict:
+        return {
+            "engine": "qwen3-asr",
+            "params": {
+                "model_size": {
+                    "type": "string",
+                    "description": "Qwen3-ASR model size",
+                    "enum": ["large"],
+                    "default": "large",
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Source language code (ISO 639-1)",
+                    "enum": ["en", "zh"],
+                    "default": "en",
+                },
+            },
+        }

@@ -183,8 +183,25 @@ Output Video with burnt-in Chinese subtitles (MP4 / MXF ProRes)
 - All new backend routes must handle errors and return JSON `{error: "..."}` with appropriate HTTP status
 - The `get_model()` function is the legacy model loading path; new code should use `asr/` engines via profiles
 - Test both faster-whisper and openai-whisper code paths when modifying transcription logic
-- Profiles control which ASR + Translation engines are used; always read from active profile
 - Glossary entries are injected into translation prompts as few-shot examples
+- Python 3.9 compatibility required — use `List[int]`, `Dict[str, int]`, `Optional[...]` from typing
+
+### Engine Architecture
+
+- ASR 同 Translation 引擎完全解耦，透過 ABC + Factory 模式
+- 新增引擎只需：實現 ABC 介面 + 加入 Factory mapping + 加入 tests
+- 引擎選擇可由前端即時傳入，Profile 作為「快速預設」而非硬性綁定
+- 每個引擎必須實現 `get_info()` 返回引擎元數據及可用性
+
+### Verification Gates
+
+每個功能完成後必須通過 4 個 gate（詳見 `docs/PRD.md` 第 6 節）：
+1. **代碼質素** — pytest 全部 PASS，有對應 test，無 hardcode
+2. **功能正確性** — curl 測試 API，前後端格式一致，edge cases 處理
+3. **整合驗證** — 相關 pipeline 走通，無 regression
+4. **文檔完整性** — CLAUDE.md + README.md 已更新
+
+可選使用 `/ralph-loop` 自動化閉環迭代（適用於多步驟整合工作）。
 
 ### Mandatory documentation updates on every feature change
 
@@ -192,10 +209,17 @@ Whenever a new feature is completed or existing functionality is modified, you *
 
 1. **CLAUDE.md** (this file) — Architecture, REST endpoints, version history
 2. **README.md** (user-facing, **must be written in Traditional Chinese**)
+3. **docs/PRD.md** — Update feature status markers (📋 → ✅)
 
 ---
 
 ## Completed Features
+
+### v3.0 — Modular Engine Selection (進行中)
+- **引擎模塊化**: ASR 同翻譯引擎可獨立選擇、獨立配置，唔綁定 Profile
+- **引擎參數 API**: 每個引擎提供 param schema + 可用模型列表
+- **前端引擎選擇器**: 動態參數面板、可用性即時偵測
+- **Profile 增強**: 從固定綁定改為快速預設 + 自由組合
 
 ### v2.1 — Language Config, Frontend UI, Bug Fixes
 - **Language config system**: Per-language ASR params (max_words_per_segment, max_segment_duration) and translation params (batch_size, temperature) with validation

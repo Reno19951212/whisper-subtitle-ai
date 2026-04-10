@@ -583,6 +583,17 @@ def api_list_asr_engines():
     return jsonify({"engines": engines_info})
 
 
+@app.route('/api/asr/engines/<name>/params', methods=['GET'])
+def api_asr_engine_params(name):
+    """Get configurable parameter schema for a specific ASR engine."""
+    from asr import create_asr_engine
+    try:
+        engine = create_asr_engine({"engine": name, "model_size": "unknown"})
+        return jsonify(engine.get_params_schema())
+    except ValueError:
+        return jsonify({"error": f"Unknown ASR engine: {name}"}), 404
+
+
 # ============================================================
 # Translation Engine Info
 # ============================================================
@@ -614,6 +625,28 @@ def api_list_translation_engines():
                 "description": desc,
             })
     return jsonify({"engines": engines_info})
+
+
+@app.route('/api/translation/engines/<name>/params', methods=['GET'])
+def api_translation_engine_params(name):
+    """Get configurable parameter schema for a specific translation engine."""
+    from translation import create_translation_engine
+    try:
+        engine = create_translation_engine({"engine": name})
+        return jsonify(engine.get_params_schema())
+    except ValueError:
+        return jsonify({"error": f"Unknown translation engine: {name}"}), 404
+
+
+@app.route('/api/translation/engines/<name>/models', methods=['GET'])
+def api_translation_engine_models(name):
+    """List available models for a specific translation engine."""
+    from translation import create_translation_engine
+    try:
+        engine = create_translation_engine({"engine": name})
+        return jsonify({"engine": name, "models": engine.get_models()})
+    except ValueError:
+        return jsonify({"error": f"Unknown translation engine: {name}"}), 404
 
 
 @app.route('/api/translate', methods=['POST'])

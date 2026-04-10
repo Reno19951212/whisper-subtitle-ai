@@ -19,6 +19,10 @@ class ASREngine(ABC):
     def get_info(self) -> dict:
         """Return engine metadata: engine, model_size, languages, available."""
 
+    @abstractmethod
+    def get_params_schema(self) -> dict:
+        """Return JSON schema describing configurable parameters for this engine."""
+
 
 def create_asr_engine(asr_config: dict) -> ASREngine:
     engine_name = asr_config.get("engine", "")

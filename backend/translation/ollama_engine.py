@@ -171,6 +171,59 @@ class OllamaTranslationEngine(TranslationEngine):
             "styles": ["formal", "cantonese"],
         }
 
+    def get_params_schema(self) -> dict:
+        return {
+            "engine": self._engine_name,
+            "params": {
+                "model": {
+                    "type": "string",
+                    "description": "Ollama model to use for translation",
+                    "enum": list(ENGINE_TO_MODEL.values()),
+                    "default": self._model,
+                },
+                "temperature": {
+                    "type": "number",
+                    "description": "Sampling temperature (lower = more deterministic)",
+                    "minimum": 0.0,
+                    "maximum": 2.0,
+                    "default": 0.1,
+                },
+                "batch_size": {
+                    "type": "integer",
+                    "description": "Number of segments per translation batch",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "default": 10,
+                },
+                "style": {
+                    "type": "string",
+                    "description": "Translation style",
+                    "enum": ["formal", "cantonese"],
+                    "default": "formal",
+                },
+            },
+        }
+
+    def get_models(self) -> list:
+        models = []
+        for engine_key, model_tag in ENGINE_TO_MODEL.items():
+            models.append({
+                "engine": engine_key,
+                "model": model_tag,
+                "available": self._check_model_available(model_tag),
+            })
+        return models
+
+    def _check_model_available(self, model_tag: str) -> bool:
+        try:
+            req = urllib.request.Request(f"{self._base_url}/api/tags")
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read())
+                installed = [m.get("name", "") for m in data.get("models", [])]
+                return model_tag in installed
+        except Exception:
+            return False
+
     def _check_available(self) -> bool:
         try:
             req = urllib.request.Request(f"{self._base_url}/api/tags")

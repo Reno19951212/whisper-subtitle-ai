@@ -304,7 +304,80 @@
 
 ---
 
-## 6. 成功指標
+## 6. 驗證準則與開發原則
+
+### 6.1 驗證準則（Gate Criteria）
+
+所有功能完成後必須通過以下 gate 先可以標記為完成。呢啲準則適用於任何開發方式（手動、subagent、ralph-loop）。
+
+#### Gate 1：代碼質素
+| 檢查項 | 準則 |
+|--------|------|
+| 測試覆蓋 | 新增功能有對應 test；整體通過率 100% |
+| 測試通過 | `pytest tests/ -v` 全部 PASS，0 failures |
+| 無 hardcode | 無 hardcoded secrets、URLs、magic numbers |
+| 錯誤處理 | 所有 API 端點有 try/catch + JSON error response |
+| Python 3.9 兼容 | 唔用 `list[int]` syntax，用 `List[int]` |
+
+#### Gate 2：功能正確性
+| 檢查項 | 準則 |
+|--------|------|
+| API 驗證 | 每個新/改 API 用 curl 測試，確認 status code + response format |
+| 前後端一致 | Frontend 調用嘅 API path + request/response format 同 backend 一致 |
+| 狀態管理 | WebSocket events 正確觸發；前端 UI 即時更新 |
+| Edge cases | 空值、404、無效參數全部有處理 |
+
+#### Gate 3：整合驗證
+| 檢查項 | 準則 |
+|--------|------|
+| 端到端流程 | 相關嘅 pipeline 路徑完整走通 |
+| 引擎切換 | 切換 ASR/翻譯引擎後功能正常（如適用） |
+| 回歸測試 | 已有功能無 regression |
+
+#### Gate 4：文檔完整性
+| 檢查項 | 準則 |
+|--------|------|
+| CLAUDE.md | 新模塊、新 API、版本記錄已更新 |
+| README.md | 用戶可見功能已記錄（繁體中文） |
+| PRD / SPEC | 功能狀態標記已更新 |
+
+### 6.2 智能閉環（Ralph-Loop）— 可選
+
+當需要自動化迭代開發時，可使用 `/ralph-loop` 執行閉環。適用場景：多步驟功能、需要反覆調試嘅整合工作。
+
+```
+實現 → 測試 → 驗證（Gate 1-4）
+  ▲                    │
+  └── 不通過 → 修復 ──┘
+       通過 → ✅ commit
+```
+
+**執行方式：**
+```bash
+/ralph-loop "實現 [功能名稱]，按照 PRD x.x 節規格。
+完成條件：
+1. pytest 全部通過
+2. curl 測試新 API 返回正確格式
+3. 前端功能可操作
+4. CLAUDE.md + README.md 已更新
+" --completion-promise "DONE" --max-iterations 15
+```
+
+**拆分原則：** 如果預計超過 15 次迭代，拆分成更小嘅獨立功能單元。
+
+### 6.3 功能開發拆分原則
+
+無論用咩開發方式，大型功能都應該拆分為獨立可驗證嘅單元：
+
+| 粒度 | 例子 | 驗證方式 |
+|------|------|----------|
+| **小** | 新增一個 API endpoint + test | 手動或 subagent |
+| **中** | 引擎參數 schema API + 前端動態面板 | Subagent 或 ralph-loop |
+| **大** | 完整引擎模塊化（後端 + 前端 + 測試） | 拆成 3-4 個中型單元 |
+
+---
+
+## 7. 成功指標
 
 | 指標 | 目標 |
 |------|------|
