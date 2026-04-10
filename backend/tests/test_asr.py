@@ -139,3 +139,80 @@ def test_api_list_asr_engines():
 
         qwen_info = next(e for e in engines if e["engine"] == "qwen3-asr")
         assert qwen_info["available"] is False
+
+
+def test_whisper_engine_params_schema():
+    from asr.whisper_engine import WhisperEngine
+    engine = WhisperEngine({"engine": "whisper", "model_size": "small", "device": "auto"})
+    schema = engine.get_params_schema()
+    assert schema["engine"] == "whisper"
+    assert "model_size" in schema["params"]
+    assert "language" in schema["params"]
+    assert "device" in schema["params"]
+    assert schema["params"]["model_size"]["type"] == "string"
+    assert "small" in schema["params"]["model_size"]["enum"]
+    assert schema["params"]["model_size"]["default"] == "small"
+
+
+def test_qwen3_engine_params_schema():
+    from asr import create_asr_engine
+    engine = create_asr_engine({"engine": "qwen3-asr", "model_size": "large"})
+    schema = engine.get_params_schema()
+    assert schema["engine"] == "qwen3-asr"
+    assert "model_size" in schema["params"]
+    assert "language" in schema["params"]
+
+
+def test_flg_engine_params_schema():
+    from asr import create_asr_engine
+    engine = create_asr_engine({"engine": "flg-asr", "model_size": "standard"})
+    schema = engine.get_params_schema()
+    assert schema["engine"] == "flg-asr"
+    assert "model_size" in schema["params"]
+    assert "language" in schema["params"]
+
+
+def test_api_asr_engine_params_whisper():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from app import app
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        resp = client.get("/api/asr/engines/whisper/params")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["engine"] == "whisper"
+        assert "params" in data
+        assert "model_size" in data["params"]
+        assert "language" in data["params"]
+        assert "device" in data["params"]
+
+
+def test_api_asr_engine_params_qwen3():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from app import app
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        resp = client.get("/api/asr/engines/qwen3-asr/params")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["engine"] == "qwen3-asr"
+
+
+def test_api_asr_engine_params_unknown():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from app import app
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        resp = client.get("/api/asr/engines/nonexistent/params")
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert "error" in data

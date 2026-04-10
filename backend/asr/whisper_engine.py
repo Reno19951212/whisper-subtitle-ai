@@ -95,3 +95,28 @@ class WhisperEngine(ASREngine):
             "languages": ["en", "zh", "ja", "ko", "fr", "de", "es"],
             "available": True,
         }
+
+    def get_params_schema(self) -> dict:
+        return {
+            "engine": "whisper",
+            "params": {
+                "model_size": {
+                    "type": "string",
+                    "description": "Whisper model size",
+                    "enum": ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"],
+                    "default": "small",
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Source language code (ISO 639-1)",
+                    "enum": ["en", "zh", "ja", "ko", "fr", "de", "es"],
+                    "default": "en",
+                },
+                "device": {
+                    "type": "string",
+                    "description": "Computation device",
+                    "enum": ["auto", "cpu", "cuda"],
+                    "default": "auto",
+                },
+            },
+        }

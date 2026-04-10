@@ -161,3 +161,131 @@ def test_api_list_translation_engines():
 
         mock_info = next(e for e in engines if e["engine"] == "mock")
         assert mock_info["available"] is True
+
+
+def test_mock_engine_params_schema():
+    from translation import create_translation_engine
+    engine = create_translation_engine({"engine": "mock"})
+    schema = engine.get_params_schema()
+    assert schema["engine"] == "mock"
+    assert "style" in schema["params"]
+    assert schema["params"]["style"]["enum"] == ["formal", "cantonese"]
+
+
+def test_mock_engine_get_models():
+    from translation import create_translation_engine
+    engine = create_translation_engine({"engine": "mock"})
+    models = engine.get_models()
+    assert len(models) == 1
+    assert models[0]["engine"] == "mock"
+    assert models[0]["available"] is True
+
+
+def test_ollama_engine_params_schema():
+    from translation.ollama_engine import OllamaTranslationEngine
+    engine = OllamaTranslationEngine({"engine": "qwen2.5-3b"})
+    schema = engine.get_params_schema()
+    assert schema["engine"] == "qwen2.5-3b"
+    assert "model" in schema["params"]
+    assert "temperature" in schema["params"]
+    assert "batch_size" in schema["params"]
+    assert "style" in schema["params"]
+    assert schema["params"]["temperature"]["type"] == "number"
+    assert schema["params"]["batch_size"]["type"] == "integer"
+
+
+def test_ollama_engine_get_models_mocked():
+    from translation.ollama_engine import OllamaTranslationEngine
+    engine = OllamaTranslationEngine({"engine": "qwen2.5-3b"})
+
+    mock_response_body = json_mod.dumps({
+        "models": [{"name": "qwen2.5:3b"}, {"name": "qwen2.5:7b"}]
+    }).encode()
+
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = mock_response_body
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
+
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        models = engine.get_models()
+
+    assert len(models) == 4  # all ENGINE_TO_MODEL entries
+    available_models = [m for m in models if m["available"]]
+    assert len(available_models) == 2  # qwen2.5:3b and qwen2.5:7b
+    unavailable_models = [m for m in models if not m["available"]]
+    assert len(unavailable_models) == 2
+
+
+def test_api_translation_engine_params_mock():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from app import app
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        resp = client.get("/api/translation/engines/mock/params")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["engine"] == "mock"
+        assert "params" in data
+
+
+def test_api_translation_engine_params_ollama():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from app import app
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        resp = client.get("/api/translation/engines/qwen2.5-3b/params")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["engine"] == "qwen2.5-3b"
+        assert "model" in data["params"]
+        assert "temperature" in data["params"]
+
+
+def test_api_translation_engine_params_unknown():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from app import app
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        resp = client.get("/api/translation/engines/nonexistent/params")
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert "error" in data
+
+
+def test_api_translation_engine_models_mock():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from app import app
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        resp = client.get("/api/translation/engines/mock/models")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["engine"] == "mock"
+        assert len(data["models"]) == 1
+
+
+def test_api_translation_engine_models_unknown():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from app import app
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        resp = client.get("/api/translation/engines/nonexistent/models")
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert "error" in data
