@@ -1750,6 +1750,122 @@ function renderParamField(name, idPrefix, paramSchema, currentValue) {
     </div>`;
 }
 
+/**
+ * Fetch params schemas for the currently-selected engines and render
+ * dynamic fields into the params containers.
+ * Called after buildProfileFormHTML inserts the skeleton HTML into the DOM.
+ *
+ * @param {Object|null} profile - Existing profile for pre-fill, or null for new profile
+ */
+async function initEngineParamsForForm(profile) {
+  const asrContainer  = document.getElementById('pf-asr-params');
+  const trContainer   = document.getElementById('pf-tr-params');
+  const modelInfoEl   = document.getElementById('pf-tr-model-info');
+  const saveBtn       = document.getElementById('pfSaveBtn');
+
+  // Form may have been closed before this async call ran
+  if (!asrContainer || !trContainer) return;
+
+  const asrEngineEl = document.getElementById('pf-asr-engine');
+  const trEngineEl  = document.getElementById('pf-tr-engine');
+  if (!asrEngineEl || !trEngineEl) return;
+
+  const asrEngine = asrEngineEl.value;
+  const trEngine  = trEngineEl.value;
+
+  const asr = profile ? (profile.asr || {}) : {};
+  const tr  = profile ? (profile.translation || {}) : {};
+
+  // Show loading state
+  asrContainer.innerHTML = `<div class="pf-params-loading">載入中...</div>`;
+  trContainer.innerHTML  = `<div class="pf-params-loading">載入中...</div>`;
+  if (saveBtn) saveBtn.disabled = true;
+
+  // Fetch ASR params
+  let asrSchemaOk = false;
+  try {
+    const resp = await fetch(`${API_BASE}/api/asr/engines/${encodeURIComponent(asrEngine)}/params`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    currentAsrSchema = data;
+
+    // Guard: form may have been closed while fetching
+    if (!document.getElementById('pf-asr-params')) return;
+
+    let asrHtml = '';
+    for (const [name, schema] of Object.entries(data.params || {})) {
+      if (EXCLUDED_ASR_PARAMS.includes(name)) continue;
+      asrHtml += renderParamField(name, 'pf-asr', schema, asr[name]);
+    }
+    document.getElementById('pf-asr-params').innerHTML =
+      asrHtml ? `<div class="pf-params-label">引擎參數</div>${asrHtml}` : '';
+    asrSchemaOk = true;
+  } catch (e) {
+    currentAsrSchema = null;
+    if (document.getElementById('pf-asr-params')) {
+      document.getElementById('pf-asr-params').innerHTML =
+        `<div class="pf-params-error">無法載入引擎參數，請重試</div>`;
+    }
+  }
+
+  // Fetch translation params + models in parallel
+  let trSchemaOk = false;
+  try {
+    const [paramsResp, modelsResp] = await Promise.all([
+      fetch(`${API_BASE}/api/translation/engines/${encodeURIComponent(trEngine)}/params`),
+      fetch(`${API_BASE}/api/translation/engines/${encodeURIComponent(trEngine)}/models`),
+    ]);
+
+    // Guard: form may have been closed
+    if (!document.getElementById('pf-tr-params')) return;
+
+    // Render model info
+    if (modelsResp.ok && modelInfoEl) {
+      const modelsData = await modelsResp.json();
+      const models = modelsData.models || [];
+      if (models.length > 0) {
+        const m = models[0];
+        const icon = m.available
+          ? `<span class="pf-model-ok">✓ 已載入</span>`
+          : `<span class="pf-model-err">✗ 未載入</span>`;
+        modelInfoEl.innerHTML = `Model: ${escapeHtml(m.model)} ${icon}`;
+      } else {
+        modelInfoEl.textContent = 'Model: —';
+      }
+    } else if (modelInfoEl) {
+      modelInfoEl.textContent = 'Model: —';
+    }
+
+    // Render translation params
+    if (paramsResp.ok) {
+      const data = await paramsResp.json();
+      currentTranslationSchema = data;
+
+      let trHtml = '';
+      for (const [name, schema] of Object.entries(data.params || {})) {
+        if (EXCLUDED_TRANSLATION_PARAMS.includes(name)) continue;
+        trHtml += renderParamField(name, 'pf-tr', schema, tr[name]);
+      }
+      document.getElementById('pf-tr-params').innerHTML =
+        trHtml ? `<div class="pf-params-label">引擎參數</div>${trHtml}` : '';
+      trSchemaOk = true;
+    } else {
+      throw new Error(`HTTP ${paramsResp.status}`);
+    }
+  } catch (e) {
+    currentTranslationSchema = null;
+    if (document.getElementById('pf-tr-params')) {
+      document.getElementById('pf-tr-params').innerHTML =
+        `<div class="pf-params-error">無法載入引擎參數，請重試</div>`;
+    }
+  }
+
+  // Re-enable Save only if both schemas loaded successfully
+  if (document.getElementById('pfSaveBtn')) {
+    document.getElementById('pfSaveBtn').disabled = !(asrSchemaOk && trSchemaOk);
+  }
+}
+
 function renderProfileList() {
   const container = document.getElementById('profileList');
   if (!container) return;
