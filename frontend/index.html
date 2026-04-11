@@ -2104,7 +2104,7 @@ function buildProfileFormHTML(profile) {
                 }
               </select>
               ${(() => {
-                const selectedEngine = asrEnginesData.find(e => e.engine === (asr.engine || asrEnginesData[0]?.engine));
+                const selectedEngine = asrEnginesData.find(e => e.engine === (asr.engine || asrEnginesData.find(x => x.available)?.engine || asrEnginesData[0]?.engine));
                 if (!selectedEngine) return '';
                 const cls = selectedEngine.available ? 'available' : 'unavailable';
                 const label = selectedEngine.available ? '可用' : '不可用';
@@ -2141,7 +2141,7 @@ function buildProfileFormHTML(profile) {
                 }
               </select>
               ${(() => {
-                const selectedEngine = translationEnginesData.find(e => e.engine === (tr.engine || translationEnginesData[0]?.engine));
+                const selectedEngine = translationEnginesData.find(e => e.engine === (tr.engine || translationEnginesData.find(x => x.available)?.engine || translationEnginesData[0]?.engine));
                 if (!selectedEngine) return '';
                 const cls = selectedEngine.available ? 'available' : 'unavailable';
                 const label = selectedEngine.available ? '可用' : '不可用';
