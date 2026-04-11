@@ -1899,6 +1899,23 @@ async function saveProfile() {
   }
 }
 
+async function deleteProfile(profileId, name) {
+  if (!confirm(`確定刪除 Profile「${name}」？`)) return;
+  try {
+    const resp = await fetch(`${API_BASE}/api/profiles/${profileId}`, { method: 'DELETE' });
+    if (resp.ok) {
+      showToast('Profile 已刪除', 'success');
+      if (editingProfileId === profileId) editingProfileId = null;
+      await loadProfiles();
+    } else {
+      const data = await resp.json();
+      showToast(data.error || '刪除失敗', 'error');
+    }
+  } catch (e) {
+    showToast('操作失敗，請重試', 'error');
+  }
+}
+
 async function activateProfile(profileId) {
   if (!profileId) return;
   try {
