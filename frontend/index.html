@@ -1623,7 +1623,6 @@ async function loadAsrEngines() {
     asrEnginesData = data.engines || [];
   } catch (e) {
     console.warn('Failed to load ASR engines:', e);
-    showToast('無法載入 ASR 引擎清單', 'error');
   }
 }
 
@@ -1635,7 +1634,6 @@ async function loadTranslationEngines() {
     translationEnginesData = data.engines || [];
   } catch (e) {
     console.warn('Failed to load translation engines:', e);
-    showToast('無法載入翻譯引擎清單', 'error');
   }
 }
 
