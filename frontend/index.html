@@ -2223,20 +2223,49 @@ function buildProfileFormHTML(profile) {
 }
 
 async function saveProfile() {
+  // Guard: schemas must be loaded before saving
+  if (!currentAsrSchema || !currentTranslationSchema) {
+    showToast('引擎參數未載入，請重試', 'error');
+    return;
+  }
+
   const name = document.getElementById('pfName').value.trim();
   if (!name) { showToast('請輸入 Profile 名稱', 'error'); return; }
 
   const profileId = document.getElementById('pfId').value;
+
+  // Collect dynamic ASR params from schema keys
+  const asrParams = {};
+  for (const paramName of Object.keys(currentAsrSchema.params || {})) {
+    if (EXCLUDED_ASR_PARAMS.includes(paramName)) continue;
+    const el = document.getElementById(`pf-asr-${paramName}`);
+    if (el) {
+      asrParams[paramName] = (el.type === 'number') ? Number(el.value) : el.value;
+    }
+  }
+
+  // Collect dynamic translation params from schema keys
+  const trParams = {};
+  for (const paramName of Object.keys(currentTranslationSchema.params || {})) {
+    if (EXCLUDED_TRANSLATION_PARAMS.includes(paramName)) continue;
+    const el = document.getElementById(`pf-tr-${paramName}`);
+    if (el) {
+      trParams[paramName] = (el.type === 'number') ? Number(el.value) : el.value;
+    }
+  }
+
   const payload = {
     name,
     description: document.getElementById('pfDesc').value.trim(),
     asr: {
       engine:             document.getElementById('pf-asr-engine').value,
       language_config_id: document.getElementById('pf-asr-language_config_id').value.trim() || 'en',
+      ...asrParams,
     },
     translation: {
       engine:      document.getElementById('pf-tr-engine').value,
       glossary_id: document.getElementById('pf-tr-glossary').value || null,
+      ...trParams,
     },
     font: {
       family:        document.getElementById('pfFontFamily').value.trim() || 'Noto Sans TC',
@@ -2266,6 +2295,8 @@ async function saveProfile() {
       showToast(profileId ? 'Profile 已更新' : 'Profile 已建立', 'success');
       editingProfileId = null;
       isCreating = false;
+      currentAsrSchema = null;
+      currentTranslationSchema = null;
       await loadProfiles();
     } else {
       const msg = Array.isArray(data.errors)
