@@ -821,14 +821,6 @@
         </div>
 
         <div class="control-group">
-          <label>Whisper 模型</label>
-          <select id="modelSelect">
-            <option value="small" selected>Small - 244M（推薦）</option>
-          </select>
-          <div id="modelStatusHint" style="font-size:11px;margin-top:4px;color:var(--text-dim);"></div>
-        </div>
-
-        <div class="control-group">
           <div style="display:flex;justify-content:space-between;align-items:center;">
             <label>字幕延遲 <span class="delay-badge">同步補償</span></label>
             <span class="range-value" id="delayValue">0s</span>
@@ -859,9 +851,6 @@
                  oninput="updateFontSize(this.value)">
         </div>
 
-        <button class="btn btn-secondary" onclick="preloadModel()" style="width:100%;">
-          📦 預加載模型
-        </button>
       </div>
 
         <!-- Language Config (collapsible) -->
@@ -975,21 +964,6 @@ function connectSocket() {
     fetchFileList();
   });
 
-  socket.on('model_loading', (data) => {
-    showToast(`正在加載模型 ${data.model}...`, 'warning');
-    updateStatus('processing', `加載 ${data.model}`);
-  });
-
-  socket.on('model_ready', (data) => {
-    showToast(`模型 ${data.model} 已就緒!`, 'success');
-    updateStatus('idle', '待機');
-    fetchModelStatus();  // Refresh model status indicators
-  });
-
-  socket.on('model_error', (data) => {
-    showToast(`模型加載失敗: ${data.error}`, 'error');
-  });
-
   socket.on('transcription_status', (data) => {
     updateStatus('processing', data.message);
     setProgress(data.status === 'extracting' ? 20 : 40);
@@ -1030,7 +1004,6 @@ function connectSocket() {
     showToast(`轉錄完成! 共 ${data.segment_count} 個字幕段落`, 'success');
     enableExport();
     setTimeout(() => setProgress(0), 2000);
-    fetchModelStatus();  // Model may have been loaded during transcription
 
     // Update file card
     if (data.file_id && uploadedFiles[data.file_id]) {
@@ -1146,7 +1119,6 @@ async function startTranscription() {
 
   const formData = new FormData();
   formData.append('file', selectedFile);
-  formData.append('model', document.getElementById('modelSelect').value);
   formData.append('sid', currentSid);
 
   try {
@@ -2581,15 +2553,6 @@ function updateFontSize(val) {
   document.getElementById('fontSizeValue').textContent = `${val}px`;
 }
 
-function preloadModel() {
-  if (!socket?.connected) {
-    showToast('請先連接到服務器', 'error');
-    return;
-  }
-  const model = document.getElementById('modelSelect').value;
-  socket.emit('load_model', { model });
-  showToast(`正在預加載 ${model} 模型...`, 'warning');
-}
 
 // ============================================================
 // UI Helpers
@@ -2642,7 +2605,6 @@ async function restartService() {
         // Reconnect socket
         if (socket) { socket.disconnect(); }
         connectSocket();
-        fetchModelStatus();
       }
     } catch (e) { /* still restarting */ }
 
@@ -2655,66 +2617,9 @@ async function restartService() {
 }
 
 // ============================================================
-// Model Status
-// ============================================================
-let modelsData = [];  // cached from server
-
-async function fetchModelStatus() {
-  try {
-    const resp = await fetch(`${API_BASE}/api/models`);
-    const data = await resp.json();
-    modelsData = data.models;
-    populateModelSelect();
-  } catch (e) { /* server not ready */ }
-}
-
-function populateModelSelect() {
-  const select = document.getElementById('modelSelect');
-  const currentVal = select.value;
-
-  select.innerHTML = modelsData.map(m => {
-    let label = `${m.name} - ${m.params}`;
-    if (m.status === 'loaded') {
-      label += '（已在線 ✓）';
-    } else if (m.status === 'downloaded') {
-      label += '（需加載）';
-    } else {
-      label += '（需下載）';
-    }
-    return `<option value="${m.id}">${label}</option>`;
-  }).join('');
-
-  // Restore previous selection or default to small
-  if (modelsData.some(m => m.id === currentVal)) {
-    select.value = currentVal;
-  } else {
-    select.value = 'small';
-  }
-  updateModelHint();
-}
-
-function updateModelHint() {
-  const select = document.getElementById('modelSelect');
-  const hint = document.getElementById('modelStatusHint');
-  const m = modelsData.find(x => x.id === select.value);
-  if (!m) { hint.textContent = ''; return; }
-
-  if (m.status === 'loaded') {
-    hint.innerHTML = `<span style="color:var(--success);">● 模型已加載，可直接使用</span>`;
-  } else if (m.status === 'downloaded') {
-    hint.innerHTML = `<span style="color:var(--warning);">● 模型已下載，首次使用時需加載到記憶體</span>`;
-  } else {
-    hint.innerHTML = `<span style="color:var(--danger);">● 模型尚未下載，首次使用時需下載 (${m.params}) 並加載</span>`;
-  }
-}
-
-document.getElementById('modelSelect').addEventListener('change', updateModelHint);
-
-// ============================================================
 // Init
 // ============================================================
 connectSocket();
-fetchModelStatus();
 Promise.all([loadAsrEngines(), loadTranslationEngines()])
   .then(() => loadProfiles());
 loadLanguages();
