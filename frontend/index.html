@@ -1499,10 +1499,6 @@ function formatDuration(seconds) {
   return `${pad(m)}:${pad(sec)}`;
 }
 
-function escapeHtml(text) {
-  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
 function clearTranscript() {
   segments = [];
   clearTranscriptDisplay();
