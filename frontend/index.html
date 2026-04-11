@@ -1921,8 +1921,11 @@ async function activateProfile(profileId) {
   try {
     const resp = await fetch(`${API_BASE}/api/profiles/${profileId}/activate`, { method: 'POST' });
     if (resp.ok) {
-      await loadProfiles();
+      activeProfileId = profileId;
+      renderProfileList();
       showToast('Profile activated', 'success');
+    } else {
+      showToast('Failed to activate profile', 'error');
     }
   } catch (e) {
     showToast('Failed to activate profile', 'error');
