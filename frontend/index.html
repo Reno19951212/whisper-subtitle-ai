@@ -1706,6 +1706,50 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// Engine params that should NOT be rendered as form fields
+const EXCLUDED_ASR_PARAMS = [];
+const EXCLUDED_TRANSLATION_PARAMS = ['model'];
+// 'model' from Ollama schema is the Ollama model tag (e.g. "qwen2.5:72b").
+// The engine dropdown already handles model selection; rendering 'model' separately
+// would let users create a mismatch between engine and model fields.
+
+/**
+ * Render one form field from a param schema entry.
+ * Returns an HTML string for a .profile-form-row div.
+ *
+ * @param {string} name         - Param name (used as element id: `pf-asr-${name}` or `pf-tr-${name}`)
+ * @param {string} idPrefix     - Element id prefix: 'pf-asr' or 'pf-tr'
+ * @param {Object} paramSchema  - { type, description, enum?, default, minimum?, maximum? }
+ * @param {*}      currentValue - Pre-fill value from existing profile (undefined → use schema default)
+ */
+function renderParamField(name, idPrefix, paramSchema, currentValue) {
+  const id = `${idPrefix}-${name}`;
+  const value = currentValue !== undefined ? currentValue : (paramSchema.default ?? '');
+  const label = name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const tooltip = paramSchema.description ? ` title="${escapeHtml(paramSchema.description)}"` : '';
+
+  let input;
+  if (paramSchema.enum) {
+    const options = paramSchema.enum.map(opt =>
+      `<option value="${escapeHtml(String(opt))}" ${String(value) === String(opt) ? 'selected' : ''}>${escapeHtml(String(opt))}</option>`
+    ).join('');
+    input = `<select id="${id}">${options}</select>`;
+  } else if (paramSchema.type === 'number' || paramSchema.type === 'integer') {
+    const min = paramSchema.minimum !== undefined ? ` min="${paramSchema.minimum}"` : '';
+    const max = paramSchema.maximum !== undefined ? ` max="${paramSchema.maximum}"` : '';
+    const step = paramSchema.type === 'number' ? ' step="0.1"' : '';
+    input = `<input type="number" id="${id}" value="${escapeHtml(String(value))}"${min}${max}${step}>`;
+  } else {
+    input = `<input type="text" id="${id}" value="${escapeHtml(String(value))}">`;
+  }
+
+  return `
+    <div class="profile-form-row">
+      <label${tooltip}>${escapeHtml(label)}</label>
+      ${input}
+    </div>`;
+}
+
 function renderProfileList() {
   const container = document.getElementById('profileList');
   if (!container) return;
