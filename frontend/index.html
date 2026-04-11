@@ -1615,6 +1615,50 @@ async function loadProfiles() {
   }
 }
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderProfileList() {
+  const container = document.getElementById('profileList');
+  if (!container) return;
+
+  let html = `<button class="profile-new-btn" onclick="openCreateForm()">＋ New Profile</button>`;
+
+  if (isCreating) {
+    html += buildProfileFormHTML(null);
+  }
+
+  for (const p of profilesData) {
+    const isActive = p.id === activeProfileId;
+    const isEditing = p.id === editingProfileId;
+    const dot = isActive
+      ? `<span class="profile-active-dot" title="Active"></span>`
+      : `<span class="profile-inactive-dot"></span>`;
+    const delDisabled = isActive ? 'disabled title="請先切換至其他 Profile"' : '';
+
+    html += `
+      <div class="profile-item">
+        <div class="profile-item-header" onclick="activateProfile('${escapeHtml(p.id)}')">
+          ${dot}
+          <span class="profile-item-name">${escapeHtml(p.name)}</span>
+          <div class="profile-item-actions" onclick="event.stopPropagation()">
+            <button onclick="openEditForm('${escapeHtml(p.id)}')">Edit</button>
+            <button class="btn-del-profile" ${delDisabled}
+              onclick="deleteProfile('${escapeHtml(p.id)}', '${escapeHtml(p.name)}')">Del</button>
+          </div>
+        </div>
+        ${isEditing ? buildProfileFormHTML(p) : ''}
+      </div>`;
+  }
+
+  container.innerHTML = html;
+}
+
 async function activateProfile(profileId) {
   if (!profileId) return;
   try {
