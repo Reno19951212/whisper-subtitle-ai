@@ -1834,6 +1834,71 @@ function buildProfileFormHTML(profile) {
     </div>`;
 }
 
+async function saveProfile() {
+  const name = document.getElementById('pfName').value.trim();
+  if (!name) { showToast('請輸入 Profile 名稱', 'error'); return; }
+
+  const profileId = document.getElementById('pfId').value;
+  const payload = {
+    name,
+    description: document.getElementById('pfDesc').value.trim(),
+    asr: {
+      engine:             document.getElementById('pfAsrEngine').value,
+      model_size:         document.getElementById('pfAsrModel').value,
+      language:           document.getElementById('pfAsrLang').value.trim() || 'en',
+      language_config_id: document.getElementById('pfAsrLangConfig').value.trim() || 'en',
+      device:             document.getElementById('pfAsrDevice').value,
+    },
+    translation: {
+      engine:      document.getElementById('pfTrEngine').value,
+      style:       document.getElementById('pfTrStyle').value,
+      temperature: parseFloat(document.getElementById('pfTrTemp').value),
+      glossary_id: document.getElementById('pfTrGlossary').value || null,
+    },
+    font: {
+      family:        document.getElementById('pfFontFamily').value.trim() || 'Noto Sans TC',
+      size:          parseInt(document.getElementById('pfFontSize').value, 10),
+      color:         document.getElementById('pfFontColor').value,
+      outline_color: document.getElementById('pfFontOutlineColor').value,
+      outline_width: parseInt(document.getElementById('pfFontOutlineWidth').value, 10),
+      position:      document.getElementById('pfFontPosition').value,
+      margin_bottom: parseInt(document.getElementById('pfFontMargin').value, 10),
+    },
+  };
+
+  const btn = document.getElementById('pfSaveBtn');
+  btn.disabled = true;
+  btn.textContent = '儲存中...';
+
+  try {
+    const url    = profileId ? `${API_BASE}/api/profiles/${profileId}` : `${API_BASE}/api/profiles`;
+    const method = profileId ? 'PATCH' : 'POST';
+    const resp   = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      showToast(profileId ? 'Profile 已更新' : 'Profile 已建立', 'success');
+      editingProfileId = null;
+      isCreating = false;
+      await loadProfiles();
+    } else {
+      const msg = Array.isArray(data.errors)
+        ? data.errors.join(', ')
+        : (data.error || '操作失敗');
+      showToast(msg, 'error');
+      btn.disabled = false;
+      btn.textContent = profileId ? '儲存' : '建立';
+    }
+  } catch (e) {
+    showToast('操作失敗，請重試', 'error');
+    btn.disabled = false;
+    btn.textContent = profileId ? '儲存' : '建立';
+  }
+}
+
 async function activateProfile(profileId) {
   if (!profileId) return;
   try {
