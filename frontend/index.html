@@ -1866,6 +1866,132 @@ async function initEngineParamsForForm(profile) {
   }
 }
 
+async function onAsrEngineChange() {
+  const engineEl  = document.getElementById('pf-asr-engine');
+  const container = document.getElementById('pf-asr-params');
+  const saveBtn   = document.getElementById('pfSaveBtn');
+  if (!engineEl || !container) return;
+
+  engineEl.disabled = true;
+  if (saveBtn) saveBtn.disabled = true;
+  container.innerHTML = `<div class="pf-params-loading">載入中...</div>`;
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/asr/engines/${encodeURIComponent(engineEl.value)}/params`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    currentAsrSchema = data;
+
+    if (!document.getElementById('pf-asr-params')) return;
+    let html = '';
+    for (const [name, schema] of Object.entries(data.params || {})) {
+      if (EXCLUDED_ASR_PARAMS.includes(name)) continue;
+      html += renderParamField(name, 'pf-asr', schema, undefined); // use schema defaults
+    }
+    document.getElementById('pf-asr-params').innerHTML =
+      html ? `<div class="pf-params-label">引擎參數</div>${html}` : '';
+
+    // Update availability dot
+    const eng = asrEnginesData.find(e => e.engine === engineEl.value);
+    const dotEl = document.getElementById('pf-asr-avail-dot');
+    const lblEl = document.getElementById('pf-asr-avail-label');
+    if (eng && dotEl && lblEl) {
+      dotEl.className = `pf-avail-dot ${eng.available ? 'available' : 'unavailable'}`;
+      lblEl.textContent = eng.available ? '可用' : '不可用';
+    }
+  } catch (e) {
+    currentAsrSchema = null;
+    if (document.getElementById('pf-asr-params')) {
+      document.getElementById('pf-asr-params').innerHTML =
+        `<div class="pf-params-error">無法載入引擎參數，請重試</div>`;
+    }
+  } finally {
+    if (document.getElementById('pf-asr-engine')) {
+      document.getElementById('pf-asr-engine').disabled = false;
+    }
+    if (document.getElementById('pfSaveBtn')) {
+      document.getElementById('pfSaveBtn').disabled = !currentAsrSchema || !currentTranslationSchema;
+    }
+  }
+}
+
+async function onTranslationEngineChange() {
+  const engineEl   = document.getElementById('pf-tr-engine');
+  const container  = document.getElementById('pf-tr-params');
+  const modelInfoEl = document.getElementById('pf-tr-model-info');
+  const saveBtn    = document.getElementById('pfSaveBtn');
+  if (!engineEl || !container) return;
+
+  engineEl.disabled = true;
+  if (saveBtn) saveBtn.disabled = true;
+  container.innerHTML = `<div class="pf-params-loading">載入中...</div>`;
+  if (modelInfoEl) modelInfoEl.textContent = 'Model: 載入中...';
+
+  try {
+    const [paramsResp, modelsResp] = await Promise.all([
+      fetch(`${API_BASE}/api/translation/engines/${encodeURIComponent(engineEl.value)}/params`),
+      fetch(`${API_BASE}/api/translation/engines/${encodeURIComponent(engineEl.value)}/models`),
+    ]);
+
+    if (!document.getElementById('pf-tr-params')) return;
+
+    // Update model info
+    if (modelsResp.ok && document.getElementById('pf-tr-model-info')) {
+      const modelsData = await modelsResp.json();
+      const models = modelsData.models || [];
+      const infoEl = document.getElementById('pf-tr-model-info');
+      if (infoEl) {
+        if (models.length > 0) {
+          const m = models[0];
+          const icon = m.available
+            ? `<span class="pf-model-ok">✓ 已載入</span>`
+            : `<span class="pf-model-err">✗ 未載入</span>`;
+          infoEl.innerHTML = `Model: ${escapeHtml(m.model)} ${icon}`;
+        } else {
+          infoEl.textContent = 'Model: —';
+        }
+      }
+    } else if (document.getElementById('pf-tr-model-info')) {
+      document.getElementById('pf-tr-model-info').textContent = 'Model: —';
+    }
+
+    if (!paramsResp.ok) throw new Error(`HTTP ${paramsResp.status}`);
+    const data = await paramsResp.json();
+    currentTranslationSchema = data;
+
+    if (!document.getElementById('pf-tr-params')) return;
+    let html = '';
+    for (const [name, schema] of Object.entries(data.params || {})) {
+      if (EXCLUDED_TRANSLATION_PARAMS.includes(name)) continue;
+      html += renderParamField(name, 'pf-tr', schema, undefined); // use schema defaults
+    }
+    document.getElementById('pf-tr-params').innerHTML =
+      html ? `<div class="pf-params-label">引擎參數</div>${html}` : '';
+
+    // Update availability dot
+    const eng = translationEnginesData.find(e => e.engine === engineEl.value);
+    const dotEl = document.getElementById('pf-tr-avail-dot');
+    const lblEl = document.getElementById('pf-tr-avail-label');
+    if (eng && dotEl && lblEl) {
+      dotEl.className = `pf-avail-dot ${eng.available ? 'available' : 'unavailable'}`;
+      lblEl.textContent = eng.available ? '可用' : '不可用';
+    }
+  } catch (e) {
+    currentTranslationSchema = null;
+    if (document.getElementById('pf-tr-params')) {
+      document.getElementById('pf-tr-params').innerHTML =
+        `<div class="pf-params-error">無法載入引擎參數，請重試</div>`;
+    }
+  } finally {
+    if (document.getElementById('pf-tr-engine')) {
+      document.getElementById('pf-tr-engine').disabled = false;
+    }
+    if (document.getElementById('pfSaveBtn')) {
+      document.getElementById('pfSaveBtn').disabled = !currentAsrSchema || !currentTranslationSchema;
+    }
+  }
+}
+
 function renderProfileList() {
   const container = document.getElementById('profileList');
   if (!container) return;
