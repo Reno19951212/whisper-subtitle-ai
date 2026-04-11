@@ -620,6 +620,66 @@
     .profile-new-btn { width: 100%; padding: 6px; margin-bottom: 8px; border: 1px dashed var(--border); border-radius: 8px; background: none; color: var(--text-dim); font-size: 12px; cursor: pointer; }
     .profile-new-btn:hover { border-color: var(--accent); color: var(--accent2); }
 
+    /* ===== Engine Selector ===== */
+    .pf-engine-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pf-engine-row select {
+      flex: 1;
+    }
+
+    .pf-avail-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .pf-avail-dot.available   { background: var(--success); }
+    .pf-avail-dot.unavailable { background: var(--text-dim); }
+
+    .pf-avail-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    .pf-model-info {
+      font-size: 12px;
+      color: var(--text-dim);
+      padding: 2px 0 6px;
+    }
+    .pf-model-info .pf-model-ok  { color: var(--success); }
+    .pf-model-info .pf-model-err { color: var(--danger); }
+
+    .pf-params-area {
+      margin-top: 4px;
+    }
+
+    .pf-params-loading {
+      font-size: 12px;
+      color: var(--text-dim);
+      padding: 6px 0;
+    }
+
+    .pf-params-error {
+      font-size: 12px;
+      color: var(--danger);
+      padding: 6px 0;
+    }
+
+    .pf-params-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 6px 0 2px;
+      border-top: 1px solid var(--border);
+      margin-top: 4px;
+    }
+
     /* ===== Translation Status ===== */
     .badge-translating { background: rgba(251,191,36,0.2); color: var(--warning); }
     .badge-translated { background: rgba(74,222,128,0.2); color: var(--success); }
