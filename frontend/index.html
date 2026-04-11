@@ -1938,6 +1938,7 @@ async function onTranslationEngineChange() {
     // Update model info
     if (modelsResp.ok && document.getElementById('pf-tr-model-info')) {
       const modelsData = await modelsResp.json();
+      if (!document.getElementById('pf-tr-params')) return;
       const models = modelsData.models || [];
       const infoEl = document.getElementById('pf-tr-model-info');
       if (infoEl) {
