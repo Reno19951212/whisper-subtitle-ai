@@ -1594,6 +1594,10 @@ let profilesData = [];
 let activeProfileId = null;
 let editingProfileId = null;
 let isCreating = false;
+let asrEnginesData = [];          // [{ engine, available, description }, ...]
+let translationEnginesData = [];  // [{ engine, available, description }, ...]
+let currentAsrSchema = null;      // last-fetched ASR params schema ({ engine, params: {...} })
+let currentTranslationSchema = null; // last-fetched translation params schema
 
 async function loadProfiles() {
   try {
@@ -1608,6 +1612,30 @@ async function loadProfiles() {
     renderProfileList();
   } catch (e) {
     console.warn('Failed to load profiles:', e);
+  }
+}
+
+async function loadAsrEngines() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/asr/engines`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    asrEnginesData = data.engines || [];
+  } catch (e) {
+    console.warn('Failed to load ASR engines:', e);
+    showToast('無法載入 ASR 引擎清單', 'error');
+  }
+}
+
+async function loadTranslationEngines() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/translation/engines`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    translationEnginesData = data.engines || [];
+  } catch (e) {
+    console.warn('Failed to load translation engines:', e);
+    showToast('無法載入翻譯引擎清單', 'error');
   }
 }
 
@@ -2302,6 +2330,8 @@ document.getElementById('modelSelect').addEventListener('change', updateModelHin
 connectSocket();
 fetchModelStatus();
 loadProfiles();
+loadAsrEngines();
+loadTranslationEngines();
 loadLanguages();
 loadGlossaries();
 updateFontSize(document.getElementById('subtitleFontSize').value);
