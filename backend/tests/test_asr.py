@@ -236,3 +236,76 @@ def test_api_asr_engine_params_unknown():
         assert resp.status_code == 404
         data = resp.get_json()
         assert "error" in data
+
+
+def test_whisper_faster_passes_layer1_params():
+    """Layer 1 params are forwarded to model.transcribe()."""
+    from asr.whisper_engine import WhisperEngine
+
+    engine = WhisperEngine({
+        "engine": "whisper",
+        "model_size": "tiny",
+        "max_new_tokens": 30,
+        "condition_on_previous_text": False,
+        "vad_filter": True,
+    })
+
+    MockSeg = namedtuple("MockSeg", ["start", "end", "text", "words"])
+    MockInfo = namedtuple("MockInfo", ["language"])
+    mock_model = MagicMock()
+    mock_model.transcribe.return_value = (iter([]), MockInfo(language="en"))
+
+    with patch.object(engine, '_get_model', return_value=(mock_model, 'faster')):
+        engine.transcribe("/tmp/test.wav", language="en")
+
+    mock_model.transcribe.assert_called_once_with(
+        "/tmp/test.wav",
+        language="en",
+        task="transcribe",
+        max_new_tokens=30,
+        condition_on_previous_text=False,
+        vad_filter=True,
+    )
+
+
+def test_whisper_faster_null_and_zero_max_tokens_become_none():
+    """max_new_tokens of None or 0 both map to None (unlimited)."""
+    from asr.whisper_engine import WhisperEngine
+
+    MockInfo = namedtuple("MockInfo", ["language"])
+
+    for val in (None, 0):
+        engine = WhisperEngine({
+            "engine": "whisper", "model_size": "tiny", "max_new_tokens": val,
+        })
+        mock_model = MagicMock()
+        mock_model.transcribe.return_value = (iter([]), MockInfo(language="en"))
+
+        with patch.object(engine, '_get_model', return_value=(mock_model, 'faster')):
+            engine.transcribe("/tmp/test.wav", language="en")
+
+        call_kwargs = mock_model.transcribe.call_args.kwargs
+        assert call_kwargs["max_new_tokens"] is None, f"Expected None for val={val}"
+
+
+def test_whisper_openai_passes_condition_on_previous_text():
+    """openai-whisper path passes condition_on_previous_text; ignores the others."""
+    from asr.whisper_engine import WhisperEngine
+
+    engine = WhisperEngine({
+        "engine": "whisper", "model_size": "tiny",
+        "condition_on_previous_text": False,
+        "max_new_tokens": 30,
+        "vad_filter": True,
+    })
+
+    mock_model = MagicMock()
+    mock_model.transcribe.return_value = {"text": "", "language": "en", "segments": []}
+
+    with patch.object(engine, '_get_model', return_value=(mock_model, 'openai')):
+        engine.transcribe("/tmp/test.wav", language="en")
+
+    call_kwargs = mock_model.transcribe.call_args.kwargs
+    assert call_kwargs["condition_on_previous_text"] is False
+    assert "max_new_tokens" not in call_kwargs
+    assert "vad_filter" not in call_kwargs
