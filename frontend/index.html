@@ -2027,6 +2027,15 @@ function renderProfileList() {
   }
 
   container.innerHTML = html;
+
+  // Fire async param loading if a form is currently open
+  // (Not awaited — runs asynchronously after DOM is ready)
+  if (isCreating) {
+    initEngineParamsForForm(null);
+  } else if (editingProfileId) {
+    const editingProfile = profilesData.find(p => p.id === editingProfileId);
+    if (editingProfile) initEngineParamsForForm(editingProfile);
+  }
 }
 
 function openEditForm(profileId) {
@@ -2044,6 +2053,8 @@ function openCreateForm() {
 function cancelProfileForm() {
   editingProfileId = null;
   isCreating = false;
+  currentAsrSchema = null;
+  currentTranslationSchema = null;
   renderProfileList();
 }
 
