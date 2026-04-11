@@ -268,6 +268,8 @@ Whenever a new feature is completed or existing functionality is modified, you *
 - **Profile 增強**: 從固定綁定改為快速預設 + 自由組合
 - **Profile CRUD UI**: 側邊欄 Profile 管理介面 — 建立、編輯、刪除 Profile，15 個欄位分 4 個折疊區塊（基本資訊/ASR/翻譯/字型），active Profile 刪除保護
 - **Engine Selector + Dynamic Params Panel**: ASR 同翻譯引擎選單從 API 動態載入（含可用性顯示），切換引擎時自動 fetch params schema 並渲染對應參數欄位；翻譯引擎顯示 model 載入狀態；修正原本錯誤的引擎名稱（"qwen3" → "qwen3-asr"）
+- **Whisper Layer 1 Segment Control**: ASR 引擎 schema 加入三個 faster-whisper 原生分段參數（`max_new_tokens`／每句字幕長度上限、`condition_on_previous_text`、`vad_filter`），透過 Profile 表單動態參數面板控制；前端新增 boolean 類型欄位支援同 nullable integer placeholder
+- **Legacy UI cleanup**: 移除 sidebar 遺留嘅 `#modelSelect` Whisper 模型選擇器及相關函數（`preloadModel()`、`populateModelSelect()`、`updateModelHint()`）；Profile 系統已接管所有引擎控制，legacy 控制項已無用
 
 ### v2.1 — Language Config, Frontend UI, Bug Fixes
 - **Language config system**: Per-language ASR params (max_words_per_segment, max_segment_duration) and translation params (batch_size, temperature) with validation
